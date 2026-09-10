@@ -2,6 +2,9 @@
 
 现代化、自托管、支持云端 Serverless 部署的每日多源 RSS 智能聚合、聚类提炼与多端触达平台。支持自定义多主题频道、关键词规则过滤、跨源降噪聚类、三协议 AI 提炼引擎（Chat Completions / Responses / Claude Messages）、语音早报（TTS）、OPML 批量迁移导入导出，以及飞书、企业微信、Telegram、Discord 和邮件 Newsletter 多渠道自动分发。
 
+> 🌐 **在线体验与前端演示站点**：[https://daily-rss-digest.netlify.app/](https://daily-rss-digest.netlify.app/)  
+> 💡 *支持在手机端与桌面端直接在线体验杂志级报刊晨报排版、Web Speech API 原生流式语音早报与跨源议题聚类。*
+
 ---
 
 ## 🏛️ 系统架构 (Architecture)
