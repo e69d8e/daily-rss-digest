@@ -1,5 +1,10 @@
+import dns from "node:dns";
 import { prisma } from "../src/lib/db";
 import { generateDailyDigestForChannel } from "../src/lib/digest/generator";
+
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
 
 async function main() {
   const targetDate =

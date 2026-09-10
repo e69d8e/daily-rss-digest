@@ -1,11 +1,17 @@
 import Parser from "rss-parser";
 import * as cheerio from "cheerio";
+import dns from "node:dns";
+
+// 优先使用 IPv4 解析（防止双栈网络或云端 Runner 尝试连接失效/阻断的 AAAA 记录导致 fetch failed）
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
 
 const parser = new Parser({
   timeout: 12000,
   headers: {
     "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 DailyRSSDigest/1.0",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
     Accept:
       "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
   },
@@ -26,6 +32,38 @@ export interface ParsedFeedResult {
   }[];
 }
 
+/**
+ * 带有超时与自动重试的弹性 Fetch 请求封装
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = 1,
+  backoffMs = 800
+): Promise<Response> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, backoffMs * (attempt + 1))
+        );
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function fetchAndParseFeed(
   feedUrl: string
 ): Promise<ParsedFeedResult> {
@@ -40,21 +78,30 @@ export async function fetchAndParseFeed(
     }
   }
 
-  try {
-    // 2. 自定义 Fetch 请求获取原始内容
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
+  // 2. 针对界面新闻的专项高可用适配：优先抓取官方 XML 源，若遇云端/海外 IP 阻断或超时，自动平滑无缝降级为精选商业与宏观移动端网关
+  if (cleanUrl.includes("jiemian.com")) {
+    try {
+      return await fetchJiemianWithFallback(cleanUrl);
+    } catch (err: any) {
+      console.warn("界面新闻专用流程抓取异常，尝试回退常规流程:", err.message);
+    }
+  }
 
-    const res = await fetch(cleanUrl, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 DailyRSSDigest/1.0",
-        Accept:
-          "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*",
+  try {
+    // 3. 自定义 Fetch 请求获取原始内容（带自动重试与标准浏览器头）
+    const res = await fetchWithRetry(
+      cleanUrl,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+          Accept:
+            "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*",
+        },
       },
-    });
-    clearTimeout(timeout);
+      1,
+      800
+    );
 
     if (!res.ok) {
       throw new Error(`HTTP 状态码错误: ${res.status} ${res.statusText}`);
@@ -135,8 +182,14 @@ export async function fetchAndParseFeed(
       return parseFeedWithCheerio(sanitizedXml, cleanUrl);
     }
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`抓取/解析 RSS 订阅源失败 [${cleanUrl}]: ${msg}`);
+    const err = error as any;
+    const causeMsg =
+      err?.cause?.message ||
+      err?.cause?.code ||
+      (typeof err?.cause === "string" ? err.cause : "");
+    const baseMsg = err instanceof Error ? err.message : String(err);
+    const fullMsg = causeMsg ? `${baseMsg} (原因: ${causeMsg})` : baseMsg;
+    throw new Error(`抓取/解析 RSS 订阅源失败 [${cleanUrl}]: ${fullMsg}`);
   }
 }
 
@@ -192,11 +245,239 @@ async function fetch36KrNewsflashes(): Promise<ParsedFeedResult> {
     };
   });
 
-  return {
+    return {
     title: "36氪 8点1氪 · 商业与宏观快讯",
     description: "36氪商业、宏观科技与市场全天候动态速览",
     siteUrl: "https://36kr.com",
     items: items.filter((i: any) => Boolean(i.title && i.link)),
+  };
+}
+
+/**
+ * 针对界面新闻的高可用双重容灾适配：
+ * 优先抓取官方 XML 订阅源，若遇云端/海外 IP 阻断、WAF 盾或网络超时，自动降级为商业与宏观精选流
+ */
+async function fetchJiemianWithFallback(
+  feedUrl: string
+): Promise<ParsedFeedResult> {
+  try {
+    const res = await fetchWithRetry(
+      feedUrl,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+          Accept:
+            "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        },
+      },
+      1,
+      800
+    );
+
+    if (res.ok) {
+      const rawText = await res.text();
+      const trimmed = rawText.trim();
+      if (trimmed.includes("<rss") || trimmed.includes("<feed")) {
+        const sanitizedXml = rawText.replace(
+          /&(?!(amp|lt|gt|quot|apos|#\d+|#x[a-f\d]+);)/gi,
+          "&amp;"
+        );
+        try {
+          const feed = await parser.parseString(sanitizedXml);
+          const items = (feed.items || []).map((item) => {
+            let publishedAt = new Date();
+            if (item.isoDate) {
+              publishedAt = new Date(item.isoDate);
+            } else if (item.pubDate) {
+              const d = new Date(item.pubDate);
+              if (!isNaN(d.getTime())) publishedAt = d;
+            }
+
+            let snippet = item.contentSnippet || "";
+            if (!snippet && item.content) {
+              const $ = cheerio.load(item.content);
+              snippet = $("body").text().trim().slice(0, 300);
+            }
+
+            return {
+              title: (item.title || "无标题文章").trim(),
+              link: (item.link || "").trim(),
+              pubDate: item.pubDate,
+              publishedAt,
+              author: item.creator || item["dc:creator"] || "界面新闻",
+              content: item.content || item["content:encoded"],
+              contentSnippet: snippet.slice(0, 500),
+            };
+          });
+
+          if (items.length > 0) {
+            return {
+              title: feed.title || "界面新闻 · 商业与宏观",
+              description:
+                feed.description || "界面新闻精品商业与宏观经济要闻",
+              siteUrl: feed.link || "https://www.jiemian.com",
+              items: items.filter((i) => Boolean(i.link && i.title)),
+            };
+          }
+        } catch (parseErr: any) {
+          console.warn("界面新闻 XML 解析异常，尝试 Cheerio 兜底:", parseErr.message);
+          return parseFeedWithCheerio(sanitizedXml, feedUrl);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn(
+      `界面新闻 XML 源请求异常 [${err.message}]，启动商业与宏观移动端容灾流...`
+    );
+  }
+
+  // 触发容灾降级：抓取界面新闻移动端「商业」与「宏观」精选
+  return await fetchJiemianMobileFallback();
+}
+
+/**
+ * 解析中文相对时间文本（如 "23分钟前"、"今天 13:43"、"昨天 18:20"）
+ */
+function parseRelativeDate(str: string): Date {
+  const now = new Date();
+  str = str.trim();
+
+  const minMatch = str.match(/(\d+)\s*分钟前/);
+  if (minMatch) {
+    return new Date(now.getTime() - parseInt(minMatch[1], 10) * 60 * 1000);
+  }
+
+  const hourMatch = str.match(/(\d+)\s*小时前/);
+  if (hourMatch) {
+    return new Date(now.getTime() - parseInt(hourMatch[1], 10) * 3600 * 1000);
+  }
+
+  const todayMatch = str.match(/今天\s*(\d{1,2}):(\d{2})/);
+  if (todayMatch) {
+    const d = new Date(now);
+    d.setHours(parseInt(todayMatch[1], 10), parseInt(todayMatch[2], 10), 0, 0);
+    return d;
+  }
+
+  const yestMatch = str.match(/昨天\s*(\d{1,2}):(\d{2})/);
+  if (yestMatch) {
+    const d = new Date(now.getTime() - 86400000);
+    d.setHours(parseInt(yestMatch[1], 10), parseInt(yestMatch[2], 10), 0, 0);
+    return d;
+  }
+
+  const monthDayMatch = str.match(
+    /(\d{1,2})[\/\-](\d{1,2})\s+(\d{1,2}):(\d{2})/
+  );
+  if (monthDayMatch) {
+    const d = new Date(now);
+    d.setMonth(parseInt(monthDayMatch[1], 10) - 1);
+    d.setDate(parseInt(monthDayMatch[2], 10));
+    d.setHours(
+      parseInt(monthDayMatch[3], 10),
+      parseInt(monthDayMatch[4], 10),
+      0,
+      0
+    );
+    return d;
+  }
+
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? now : d;
+}
+
+/**
+ * 界面新闻移动端精选（商业与宏观）容灾兜底解析器
+ */
+async function fetchJiemianMobileFallback(): Promise<ParsedFeedResult> {
+  const categoryUrls = [
+    { url: "https://m.jiemian.com/lists/2_1.html", cat: "商业" },
+    { url: "https://m.jiemian.com/lists/174_1.html", cat: "宏观" },
+  ];
+
+  const items: ParsedFeedResult["items"] = [];
+  const seenLinks = new Set<string>();
+
+  for (const { url, cat } of categoryUrls) {
+    try {
+      const res = await fetchWithRetry(
+        url,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          },
+        },
+        1,
+        800
+      );
+
+      if (!res.ok) continue;
+
+      const html = await res.text();
+      const $ = cheerio.load(html);
+
+      $(".news-view").each((_, el) => {
+        const $el = $(el);
+        const titleEl = $el.find(".news-header h3 a, h3 a").first();
+        const title = titleEl.text().trim();
+        let link = titleEl.attr("href") || "";
+        if (!link) return;
+
+        // 标准化链接为 web 端格式
+        if (link.startsWith("/")) {
+          link = "https://www.jiemian.com" + link;
+        } else if (link.startsWith("https://m.jiemian.com/")) {
+          link = link.replace(
+            "https://m.jiemian.com/",
+            "https://www.jiemian.com/"
+          );
+        }
+
+        if (seenLinks.has(link) || !title) return;
+        seenLinks.add(link);
+
+        const footerSpans = $el.find(".news-footer p span");
+        const authorOrTag =
+          footerSpans.first().text().trim() || `界面新闻 · ${cat}`;
+        const timeText =
+          footerSpans.length > 1 ? footerSpans.eq(1).text().trim() : "";
+
+        let publishedAt = new Date();
+        if (timeText) {
+          publishedAt = parseRelativeDate(timeText);
+        }
+
+        const snippet = $el.find(".news-main, p.desc").text().trim();
+
+        items.push({
+          title,
+          link,
+          pubDate: publishedAt.toUTCString(),
+          publishedAt,
+          author: authorOrTag,
+          contentSnippet: snippet || title,
+          content: snippet || title,
+        });
+      });
+    } catch (e: any) {
+      console.warn(`界面新闻移动端精选抓取 [${url}] 异常:`, e.message);
+    }
+  }
+
+  if (items.length === 0) {
+    throw new Error("界面新闻商业与宏观移动端页面未能提取到任何文章");
+  }
+
+  return {
+    title: "界面新闻 · 商业与宏观",
+    description: "界面新闻商业与宏观资讯精选（高可用容灾流）",
+    siteUrl: "https://www.jiemian.com",
+    items,
   };
 }
 
