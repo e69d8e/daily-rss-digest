@@ -103,7 +103,7 @@ sequenceDiagram
         end
         Engine->>DB: 留存文章记录并执行关键词黑白名单过滤
     end
-    Engine->>AI: 提交文章候选集，根据频道 Prompt 进行跨源聚类与 TL;DR 提炼
+    Engine->>AI: 提交文章候选集，根据频道 Prompt 进行跨源聚类与 TLDR 提炼
     AI-->>Engine: 返回聚合议题、影响力评分、深度洞察与 TTS 语音文稿
     Engine->>DB: Upsert 存储当日 DailyDigest
     Engine->>Push: 派发飞书 / 企微 / Telegram / Discord / 邮件通知
