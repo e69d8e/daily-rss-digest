@@ -463,10 +463,10 @@ export default function ChannelsSettingsTab() {
                     <div className="flex items-center justify-between text-stone-500">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5 text-stone-400" />
-                        定时汇总时间
+                        定时汇总调度
                       </span>
-                      <span className="font-mono font-medium text-stone-800">
-                        {ch.scheduleTime}
+                      <span className="font-sans text-[11px] font-medium text-stone-600 bg-stone-100 px-2 py-0.5 rounded">
+                        每日早晨 08:00
                       </span>
                     </div>
 
@@ -553,17 +553,6 @@ export default function ChannelsSettingsTab() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">
-                  每日定时汇总时间 (HH:mm)
-                </label>
-                <input
-                  type="time"
-                  value={scheduleTime}
-                  onChange={(e) => setScheduleTime(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-stone-300 text-xs font-mono focus:outline-none focus:border-stone-900"
-                />
-              </div>
 
               {/* 核心重点需求：频道订阅源配置区 */}
               <div className="p-4 rounded-xl border border-amber-200/80 bg-amber-50/20 space-y-3.5">
