@@ -218,50 +218,96 @@ npm run start
 
 ---
 
-## ☁️ 云端部署指南：Netlify + Turso Serverless (Cloud Deployment)
+## ☁️ 他人 Fork 本项目快速部署与配置指南 (Fork & Self-Hosting Guide)
 
-本项目已针对 Netlify Serverless 进行了完整适配，开箱即用。
+本项目完全支持零成本（100% 免费）一键 Fork 自托管。底层采用 **Turso 云数据库（免费 9GB） + Netlify Serverless 静态与前端托管 + GitHub Actions 自动化定时任务** 架构。
 
-### 步骤 1：准备 Turso 云原生数据库
-1. 前往 [Turso 官网](https://turso.tech) 注册并创建免费数据库：
+### 步骤 1：Fork 本仓库
+点击 GitHub 页面右上角 **Fork** 按钮，将本项目完整复制一份到您的个人 GitHub 账号下。
+
+### 步骤 2：创建免费 Turso 云数据库
+1. 前往 [Turso 官网](https://turso.tech) 注册账号（免费版提供 9GB 存储，足可容纳数十万篇资讯）：
    ```bash
+   # 创建专属数据库
    turso db create daily-rss-digest
+   # 获取数据库连接 URL（以 libsql:// 开头）
+   turso db show daily-rss-digest --url
+   # 创建访问 Token
    turso db tokens create daily-rss-digest
    ```
-2. 获取数据库 URL（以 `libsql://` 开头）与 Token。
+2. 初始化表结构并导入预设频道与热门订阅源（在本地命令行执行一次即可）：
+   ```bash
+   TURSO_DATABASE_URL="libsql://your-db.turso.io" TURSO_AUTH_TOKEN="your_token" npm run prisma:push
+   TURSO_DATABASE_URL="libsql://your-db.turso.io" TURSO_AUTH_TOKEN="your_token" npm run db:seed
+   ```
 
-### 步骤 2：部署到 Netlify
-1. 将代码推送到 GitHub / GitLab 私有仓库。
-2. 登录 [Netlify 控制台](https://app.netlify.com)，点击 **Add new site** -> **Import an existing project**。
-3. 选择对应代码仓库，Netlify 会自动识别根目录下的 [`netlify.toml`](./netlify.toml) 配置：
-   - **Build command**: `npm run build`
-   - **Publish directory**: `.next`
+### 步骤 3：导入 Netlify 进行前端一键托管
+1. 登录 [Netlify 控制台](https://app.netlify.com)，点击 **Add new site** -> **Import an existing project**。
+2. 授权并选择您刚 Fork 的 `daily-rss-digest` 仓库，Netlify 会自动识别根目录的 [`netlify.toml`](./netlify.toml)。
+3. 进入 **Site configuration** -> **Environment variables**，配置生产环境变量：
+   | 环境变量名 | 必填 | 说明 |
+   |---|:---:|---|
+   | `TURSO_DATABASE_URL` | 是 | 步骤 2 中获取的 `libsql://...` 数据库地址 |
+   | `TURSO_AUTH_TOKEN` | 是 | 步骤 2 中生成的 Turso JWT Token |
+   | `ADMIN_PASSWORD` | 是 | 访问 `/settings` 设置中心的管理密码（如 `my_password_2026`） |
+   | `AI_API_KEY` | 可选 | 云端直接注入大模型密钥（也可部署后在 Web 设置中心配置） |
+4. 点击 **Deploy**，部署完成后即可获得 Netlify 专属在线域名（例如 `https://your-app.netlify.app`）。
 
-### 步骤 3：在 Netlify 后台配置环境变量
-进入站点设置中的 **Site configuration** -> **Environment variables**，添加以下环境变量：
+### 步骤 4：在 GitHub 仓库配置 Actions 密钥（实现每日 08:00 定时晨报与推送）
+为彻底规避 Serverless 平台的执行时长截断，晨报生成由内置的 GitHub Actions 自动化流水线负责：
+1. 打开您 Fork 的 GitHub 仓库，进入 **Settings** -> **Secrets and variables** -> **Actions**。
+2. 点击 **New repository secret**，添加以下密钥：
+   - `TURSO_DATABASE_URL`：同步骤 2 中的 Turso 连接地址
+   - `TURSO_AUTH_TOKEN`：同步骤 2 中的 Turso Token
+   - `BASE_URL`：步骤 3 中 Netlify 分配的正式线上域名（如 `https://your-app.netlify.app`，用于通知卡片跳转）
+   - `AI_API_KEY`：（可选）若未在 Web 设置中心保存，可直接在此注入
+3. **自动化运作**：每天北京时间早晨 **08:00**（UTC 00:00），GitHub Actions 会全自动爬取资讯源、调用大模型提炼晨报并同步派发至多端！随时也可在 GitHub 仓库的 **Actions** 标签页点击 **Run workflow** 手动触发即刻生成。
 
-| 变量名 | 必填 | 示例 / 说明 |
-|---|:---:|---|
-| `TURSO_DATABASE_URL` | 是 | `libsql://daily-rss-digest-xxxx.turso.io` |
-| `TURSO_AUTH_TOKEN` | 是 | Turso 生成的访问 JWT Token |
-| `ADMIN_PASSWORD` | 是 | 生产环境设置中心访问密码（防未授权访问） |
-| `AI_API_KEY` | 推荐 | `sk-...` 直接在平台注入，API Key 不入库、不暴露 |
-| `CRON_SECRET` | 是 | 外部调用定时触发接口时的鉴权令牌 |
+---
 
-部署完成后，点击 Netlify 提供的专属域名即可直接在线访问。
+## 📲 多端推送配置与使用指南 (Push Notifications Guide)
 
-### 步骤 4：配置 GitHub Actions 自动化定时任务（彻底规避 Serverless 超时）
-为彻底解决 Serverless 平台对长耗时任务（多源爬虫与大模型深度提炼）的 10 秒超时限制，项目内置了全自动化 GitHub Actions 工作流（[`.github/workflows/daily-digest.yml`](./.github/workflows/daily-digest.yml)）：
+每日晨报在早晨 08:00 生成完毕后，系统将**立即自动通过消息通道派发至已启用的多端客户端**。访问线上站点的 `/settings`（设置中心 ➔ 推送设置）即可随时配置与一键测试。
 
-1. 进入代码仓库的 **Settings** -> **Secrets and variables** -> **Actions**。
-2. 点击 **New repository secret**，配置以下密钥：
-   - `TURSO_DATABASE_URL`：Turso 云数据库连接串（`libsql://...`）
-   - `TURSO_AUTH_TOKEN`：Turso 访问 Token
-   - `BASE_URL`：（可选）线上访问域名，例如 `https://daily-rss-digest.netlify.app`
-   - `AI_API_KEY`：（可选）若未在 Web 设置中心配置，可直接在此注入
-3. **运行机制**：
-   - **每日定时**：每天北京时间早晨 **08:00**（UTC 00:00）自动抓取全网源并写入 Turso 数据库。
-   - **手动一键触发**：进入 GitHub **Actions** 页面，选择 **Daily RSS Digest Generator** -> **Run workflow**，即可按需随时触发即时生成。
+### 1. 飞书机器人 (Feishu Bot)
+* **配置步骤**：
+  1. 在飞书群组中，点击右上角「设置」➔「群机器人」➔「添加自定义机器人」；
+  2. 复制生成的 Webhook 地址（格式形如 `https://open.feishu.cn/open-apis/bot/v2/hook/...`）；
+  3. 在 Web 设置中心勾选 **启用飞书推送** 并粘贴 Webhook 地址，保存即可。
+* **卡片形态**：定制交互式富文本卡片（CardKit），包含早报主标题、今日全局总览 TL;DR、各焦点议题深度解析及「阅读完整排版晨报」一键跳转按钮。
+
+### 2. 企业微信机器人 (WeCom Bot)
+* **配置步骤**：
+  1. 在企业微信群聊中点击右上角「...」➔「添加群机器人」➔ 新建自定义机器人；
+  2. 复制生成的 Webhook 地址（以 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` 开头）；
+  3. 在 Web 设置中心勾选 **启用企业微信推送** 并填入 Webhook。
+* **卡片形态**：原生 Markdown 精简排版，清晰罗列今日各焦点议题要点速览与原文来源。
+
+### 3. Telegram 机器人 (Telegram Bot)
+* **配置步骤**：
+  1. 在 Telegram 中私聊官方账号 `@BotFather`，发送 `/newbot` 指令，按照指引获取 **Bot Token**；
+  2. 将创建好的机器人拉入您的通知群组或频道；
+  3. 搜索 `@userinfobot` 获取接收者（个人或群组）的 **Chat ID**（群组 Chat ID 通常为负数）；
+  4. 在 Web 设置中心填入 `Bot Token` 和 `Chat ID`，并勾选启用。
+* **卡片形态**：标准 MarkdownV2 格式消息，支持粗体高亮与超链接跳转。
+
+### 4. Discord 频道 Webhook
+* **配置步骤**：
+  1. 在 Discord 服务器中选择目标文字频道，点击「编辑频道」➔「整合 (Integrations)」➔「Webhooks」；
+  2. 点击「创建 Webhook」，自定义机器人昵称并复制 Webhook URL；
+  3. 在 Web 设置中心勾选 **启用 Discord 推送** 并粘贴 URL。
+* **卡片形态**：高对比度深色 Embed 富文本嵌入卡片，支持多字段结构化排版。
+
+### 5. 邮件 Newsletter (SMTP 邮件直投)
+* **配置步骤**：
+  1. 准备任意支持 SMTP 的邮箱（如 QQ邮箱、163邮箱、Gmail 或企业域名邮箱、Resend、SendGrid）；
+  2. 获取 SMTP 主机名、端口（推荐 `465` SSL 或 `587` TLS）、发信账号以及**授权码 / 应用专用密码**；
+  3. 在收件人列表（`emailRecipients`）中填入接收邮箱，支持多个邮箱用英文逗号 `,` 分隔。
+* **卡片形态**：纯正报刊杂志排版 HTML 格式邮件，在移动端与桌面端邮件客户端均能获得舒适的晨报阅读体验。
+
+### 6. 一键连通性测试与自动化联动
+* **实时测试**：在 Web 设置中心配置好各渠道后，无需等待早晨 08:00，点击底部的 **「发送测试通知」** 按钮，系统会立即向所有已勾选的渠道发送测试卡片，实时校验网络与凭据有效性。
+* **定时联动**：每天早晨 08:00 晨报生成完毕后，系统自动通过 `dispatchDigestNotifications` 瞬时并发推送至所有已开启渠道。
 
 ---
 
@@ -313,36 +359,19 @@ npm run start
 
 ## ⏰ 定时调度配置指南 (Cron Automation)
 
-推荐设置每日上午定时触发（如每日上午 08:00）：
+推荐设置每日上午 08:00 准时自动触发晨报生成与多端推送：
 
-### 选项 1：Linux crontab 定时调用
+### 推荐方案：内置 GitHub Actions 自动化工作流（首选，无超时风险）
+项目已内置 [`.github/workflows/daily-digest.yml`](./.github/workflows/daily-digest.yml)，在 GitHub Secrets 中配置 `TURSO_DATABASE_URL` 与 `TURSO_AUTH_TOKEN` 后即可开箱生效：
+* **触发频率**：每天北京时间早晨 **08:00**（UTC 00:00）全自动运行；
+* **优势**：拥有 15 分钟充足运行窗口，直连 Turso 数据库完成全网抓取、大模型深度提炼与多端通知推送，彻底规避 Serverless 平台 10 秒超时限制。
 
-```bash
-# 每日早上 08:00 自动抓取汇总并分发至多端
-0 8 * * * curl -s -X GET "https://your-domain.netlify.app/api/cron/digest" -H "Authorization: Bearer your_production_cron_secret" > /dev/null 2>&1
-```
-
-### 选项 2：GitHub Actions 定时任务工作流
-
-在仓库创建 `.github/workflows/daily-digest-cron.yml`：
-
-```yaml
-name: Daily RSS Digest Cron
-on:
-  schedule:
-    # 每天 UTC 00:00（北京时间 08:00）触发
-    - cron: '0 0 * * *'
-  workflow_dispatch:
-
-jobs:
-  trigger:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger Daily Digest
-        run: |
-          curl -s -f -X GET "https://your-domain.netlify.app/api/cron/digest" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
-```
-
-### 选项 3：使用免费云端 Cron 服务
-可利用 [cron-job.org](https://cron-job.org) 或 [UptimeRobot](https://uptimerobot.com) 创建定时 HTTP GET 请求，配置目标 URL 为 `https://your-domain.netlify.app/api/cron/digest`，并在 Request Headers 中添加 `Authorization: Bearer your_production_cron_secret`。
+### 备选方案：通过外部定时发令枪调用 `/api/cron/digest`
+若将项目部署在常驻 Node.js 服务器或容器中，也可通过接口密钥触发：
+* **Linux crontab 示例**：
+  ```bash
+  # 每日早上 08:00 自动触发生成与分发
+  0 8 * * * curl -s -X GET "https://your-domain.com/api/cron/digest?key=your_production_cron_secret" > /dev/null 2>&1
+  ```
+* **第三方云端 Cron 服务**：
+  在 [cron-job.org](https://cron-job.org) 中创建定时任务，填写目标 URL 为 `https://your-site.netlify.app/api/cron/digest?key=your_production_cron_secret`，设定在每日早晨定时发起 GET 请求。
