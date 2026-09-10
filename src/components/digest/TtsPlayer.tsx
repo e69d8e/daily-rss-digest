@@ -33,21 +33,53 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
   rateRef.current = rate;
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setSupported(false);
-      return;
-    }
+    try {
+      if (
+        typeof window === "undefined" ||
+        !("speechSynthesis" in window) ||
+        !window.speechSynthesis ||
+        typeof window.speechSynthesis.getVoices !== "function" ||
+        typeof window.SpeechSynthesisUtterance === "undefined"
+      ) {
+        setSupported(false);
+        return;
+      }
 
-    const loadVoices = () => {
-      window.speechSynthesis.getVoices();
-    };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+      const loadVoices = () => {
+        try {
+          if (window.speechSynthesis && typeof window.speechSynthesis.getVoices === "function") {
+            window.speechSynthesis.getVoices();
+          }
+        } catch {
+          // ignore voice loading error
+        }
+      };
+
+      loadVoices();
+      try {
+        if ("onvoiceschanged" in window.speechSynthesis) {
+          window.speechSynthesis.onvoiceschanged = loadVoices;
+        }
+      } catch {
+        // ignore listener attachment error
+      }
+    } catch (err) {
+      console.warn("Web Speech API 初始化失败:", err);
+      setSupported(false);
+    }
 
     return () => {
       isPlayingRef.current = false;
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
+      try {
+        if (
+          typeof window !== "undefined" &&
+          window.speechSynthesis &&
+          typeof window.speechSynthesis.cancel === "function"
+        ) {
+          window.speechSynthesis.cancel();
+        }
+      } catch {
+        // ignore
       }
     };
   }, []);
@@ -70,82 +102,126 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
     currentIndexRef.current = index;
     setCurrentSentenceIndex(index);
 
-    const sentence = sentences[index];
-    const utterance = new SpeechSynthesisUtterance(sentence);
-    utterance.lang = "zh-CN";
-    utterance.rate = rateRef.current;
-
-    const voices = window.speechSynthesis.getVoices();
-    const zhVoice =
-      voices.find(
-        (v) =>
-          v.lang === "zh-CN" ||
-          v.lang === "zh_CN" ||
-          v.lang.toLowerCase().includes("zh-cn")
-      ) || voices.find((v) => v.lang.startsWith("zh"));
-
-    if (zhVoice) {
-      utterance.voice = zhVoice;
-    }
-
-    utterance.onend = () => {
-      if (isPlayingRef.current && !isPausedRef.current) {
-        speakSentence(index + 1);
-      }
-    };
-
-    utterance.onerror = (event) => {
+    try {
       if (
-        event.error === "canceled" ||
-        event.error === "interrupted" ||
-        !isPlayingRef.current
+        typeof window === "undefined" ||
+        !window.speechSynthesis ||
+        typeof window.SpeechSynthesisUtterance === "undefined"
       ) {
+        setSupported(false);
         return;
       }
 
-      console.warn(`TTS 播报跳过句 [${index}]: ${event.error || "未知原因"}`);
-      if (isPlayingRef.current && !isPausedRef.current) {
-        setTimeout(() => speakSentence(index + 1), 50);
-      }
-    };
+      const sentence = sentences[index];
+      const utterance = new SpeechSynthesisUtterance(sentence);
+      utterance.lang = "zh-CN";
+      utterance.rate = rateRef.current;
 
-    window.speechSynthesis.speak(utterance);
+      try {
+        const voices = window.speechSynthesis.getVoices();
+        const zhVoice =
+          voices.find(
+            (v) =>
+              v.lang === "zh-CN" ||
+              v.lang === "zh_CN" ||
+              v.lang.toLowerCase().includes("zh-cn")
+          ) || voices.find((v) => v.lang.startsWith("zh"));
+
+        if (zhVoice) {
+          utterance.voice = zhVoice;
+        }
+      } catch {
+        // ignore voice selection error
+      }
+
+      utterance.onend = () => {
+        if (isPlayingRef.current && !isPausedRef.current) {
+          speakSentence(index + 1);
+        }
+      };
+
+      utterance.onerror = (event) => {
+        if (
+          event.error === "canceled" ||
+          event.error === "interrupted" ||
+          !isPlayingRef.current
+        ) {
+          return;
+        }
+
+        console.warn(`TTS 播报跳过句 [${index}]: ${event.error || "未知原因"}`);
+        if (isPlayingRef.current && !isPausedRef.current) {
+          setTimeout(() => speakSentence(index + 1), 50);
+        }
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn("TTS 播放出错:", err);
+      setIsPlaying(false);
+      setIsPaused(false);
+      isPlayingRef.current = false;
+    }
   };
 
   const handlePlay = () => {
     if (!supported || sentences.length === 0) return;
 
-    if (isPaused) {
-      window.speechSynthesis.resume();
-      setIsPaused(false);
-      setIsPlaying(true);
+    try {
+      if (
+        typeof window === "undefined" ||
+        !window.speechSynthesis ||
+        typeof window.speechSynthesis.speak !== "function"
+      ) {
+        setSupported(false);
+        return;
+      }
+
+      if (isPaused) {
+        if (typeof window.speechSynthesis.resume === "function") {
+          window.speechSynthesis.resume();
+        }
+        setIsPaused(false);
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+        isPausedRef.current = false;
+
+        setTimeout(() => {
+          if (!window.speechSynthesis?.speaking && isPlayingRef.current) {
+            speakSentence(currentIndexRef.current);
+          }
+        }, 100);
+        return;
+      }
+
       isPlayingRef.current = true;
       isPausedRef.current = false;
+      setIsPlaying(true);
+      setIsPaused(false);
 
-      setTimeout(() => {
-        if (!window.speechSynthesis.speaking && isPlayingRef.current) {
-          speakSentence(currentIndexRef.current);
-        }
-      }, 100);
-      return;
-    }
-
-    isPlayingRef.current = true;
-    isPausedRef.current = false;
-    setIsPlaying(true);
-    setIsPaused(false);
-
-    window.speechSynthesis.cancel();
-    setTimeout(() => {
-      if (isPlayingRef.current) {
-        speakSentence(0);
+      if (typeof window.speechSynthesis.cancel === "function") {
+        window.speechSynthesis.cancel();
       }
-    }, 60);
+      setTimeout(() => {
+        if (isPlayingRef.current) {
+          speakSentence(0);
+        }
+      }, 60);
+    } catch (err) {
+      console.warn("TTS handlePlay error:", err);
+      setSupported(false);
+    }
   };
 
   const handlePause = () => {
     if (!supported) return;
-    window.speechSynthesis.pause();
+    try {
+      if (window.speechSynthesis && typeof window.speechSynthesis.pause === "function") {
+        window.speechSynthesis.pause();
+      }
+    } catch {
+      // ignore
+    }
     setIsPaused(true);
     setIsPlaying(false);
     isPlayingRef.current = false;
@@ -153,10 +229,19 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
   };
 
   const handleStop = () => {
-    if (!supported) return;
     isPlayingRef.current = false;
     isPausedRef.current = false;
-    window.speechSynthesis.cancel();
+    try {
+      if (
+        typeof window !== "undefined" &&
+        window.speechSynthesis &&
+        typeof window.speechSynthesis.cancel === "function"
+      ) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {
+      // ignore
+    }
     setIsPlaying(false);
     setIsPaused(false);
     setCurrentSentenceIndex(0);
@@ -171,7 +256,13 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
     rateRef.current = nextRate;
 
     if (isPlaying) {
-      window.speechSynthesis.cancel();
+      try {
+        if (window.speechSynthesis && typeof window.speechSynthesis.cancel === "function") {
+          window.speechSynthesis.cancel();
+        }
+      } catch {
+        // ignore
+      }
       setTimeout(() => {
         if (isPlayingRef.current) {
           speakSentence(currentIndexRef.current);

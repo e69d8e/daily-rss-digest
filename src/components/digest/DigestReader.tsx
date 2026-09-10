@@ -171,18 +171,35 @@ export default function DigestReader() {
     }
   };
 
-  const copyRssUrl = () => {
+  const copyRssUrl = async () => {
     if (!selectedChannel) return;
-    const url = `${window.location.origin}/api/feed/${selectedChannel.slug}/rss.xml`;
-    navigator.clipboard.writeText(url);
-    setCopiedRss(true);
-    setTimeout(() => setCopiedRss(false), 2500);
+    try {
+      const origin = typeof window !== "undefined" && window.location ? window.location.origin : "";
+      const url = `${origin}/api/feed/${selectedChannel.slug}/rss.xml`;
+      
+      if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(url);
+      } else if (typeof document !== "undefined") {
+        const input = document.createElement("input");
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        document.body.removeChild(input);
+      }
+      setCopiedRss(true);
+      setTimeout(() => setCopiedRss(false), 2500);
+    } catch (e) {
+      console.warn("复制 RSS 链接失败:", e);
+    }
   };
 
   // 前后日期导航
-  const currentHistoryIndex = historyDates.findIndex(
-    (h) => h.date === (currentDigest?.date || selectedDate)
-  );
+  const currentHistoryIndex = Array.isArray(historyDates)
+    ? historyDates.findIndex(
+        (h) => h.date === (currentDigest?.date || selectedDate)
+      )
+    : -1;
 
   const handlePrevDay = () => {
     if (currentHistoryIndex < historyDates.length - 1) {
@@ -368,18 +385,24 @@ export default function DigestReader() {
 
             {/* 焦点议题列表 */}
             <section className="space-y-8 pt-2">
-              {currentDigest.sections.topics.map((topic, idx) => (
-                <TopicSection
-                  key={topic.id || idx}
-                  topic={topic}
-                  index={idx}
-                  onOpenArticle={setActiveArticle}
-                />
-              ))}
+              {currentDigest.sections?.topics && currentDigest.sections.topics.length > 0 ? (
+                currentDigest.sections.topics.map((topic, idx) => (
+                  <TopicSection
+                    key={topic.id || idx}
+                    topic={topic}
+                    index={idx}
+                    onOpenArticle={setActiveArticle}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-8 text-xs text-stone-400 bg-stone-50/50 rounded-xl border border-dashed border-[#eae6df]">
+                  本期晨报暂无结构化焦点议题
+                </div>
+              )}
             </section>
 
             {/* 综合趋势研判与行业洞察 */}
-            {currentDigest.sections.industryInsights &&
+            {currentDigest.sections?.industryInsights &&
               currentDigest.sections.industryInsights.length > 0 && (
                 <section className="bg-stone-900 text-stone-100 rounded-xl p-5 sm:p-6 space-y-2.5">
                   <div className="flex items-center gap-1.5 text-amber-400 text-xs font-mono font-semibold uppercase tracking-wider">
@@ -408,7 +431,8 @@ export default function DigestReader() {
                     <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">
                       已推送到{" "}
                       {currentDigest.deliveryLogs
-                        .map((l) => l.targetType.replace("WEBHOOK_", ""))
+                        .map((l) => (l.targetType || "").replace("WEBHOOK_", ""))
+                        .filter(Boolean)
                         .join(" / ")}
                     </span>
                   )}

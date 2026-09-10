@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Settings, ArrowLeft } from "lucide-react";
@@ -8,12 +9,25 @@ import BrandLogo from "@/components/ui/BrandLogo";
 export default function Navbar() {
   const pathname = usePathname();
   const isSettings = pathname?.startsWith("/settings");
+  const [today, setToday] = useState("");
 
-  const today = new Date().toLocaleDateString("zh-CN", {
-    month: "long",
-    day: "numeric",
-    weekday: "long",
-  });
+  useEffect(() => {
+    try {
+      const formatted = new Date().toLocaleDateString("zh-CN", {
+        month: "long",
+        day: "numeric",
+        weekday: "long",
+      });
+      setToday(formatted);
+    } catch {
+      try {
+        const now = new Date();
+        setToday(`${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`);
+      } catch {
+        setToday("");
+      }
+    }
+  }, []);
 
   return (
     <header className="border-b border-[#eae6df] bg-[#ffffff] sticky top-0 z-40">
@@ -28,9 +42,14 @@ export default function Navbar() {
             <span className="font-serif-title text-lg font-bold text-stone-900 tracking-tight group-hover:text-amber-900 transition-colors">
               Daily Briefing
             </span>
-            <span className="text-xs text-stone-400 font-normal hidden sm:inline">
-              · {today}
-            </span>
+            {today && (
+              <span
+                suppressHydrationWarning
+                className="text-xs text-stone-400 font-normal hidden sm:inline"
+              >
+                · {today}
+              </span>
+            )}
           </div>
         </Link>
 

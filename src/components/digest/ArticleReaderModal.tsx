@@ -125,8 +125,16 @@ export default function ArticleReaderModal({
   useEffect(() => {
     return () => {
       isPlayingRef.current = false;
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
+      try {
+        if (
+          typeof window !== "undefined" &&
+          window.speechSynthesis &&
+          typeof window.speechSynthesis.cancel === "function"
+        ) {
+          window.speechSynthesis.cancel();
+        }
+      } catch {
+        // ignore
       }
     };
   }, []);
@@ -145,84 +153,127 @@ export default function ArticleReaderModal({
     currentIndexRef.current = index;
     setCurrentSentenceIndex(index);
 
-    const sentence = sentences[index];
-    const utterance = new SpeechSynthesisUtterance(sentence);
-    utterance.lang = "zh-CN";
-    utterance.rate = rateRef.current;
-
-    const voices = window.speechSynthesis.getVoices();
-    const zhVoice =
-      voices.find(
-        (v) =>
-          v.lang === "zh-CN" ||
-          v.lang === "zh_CN" ||
-          v.lang.toLowerCase().includes("zh-cn")
-      ) || voices.find((v) => v.lang.startsWith("zh"));
-
-    if (zhVoice) {
-      utterance.voice = zhVoice;
-    }
-
-    utterance.onend = () => {
-      if (isPlayingRef.current && !isPausedRef.current) {
-        speakSentence(index + 1);
-      }
-    };
-
-    utterance.onerror = (e) => {
-      if (e.error === "canceled" || e.error === "interrupted" || !isPlayingRef.current) {
+    try {
+      if (
+        typeof window === "undefined" ||
+        !window.speechSynthesis ||
+        typeof window.SpeechSynthesisUtterance === "undefined"
+      ) {
+        setIsPlayingTts(false);
+        setIsPausedTts(false);
+        isPlayingRef.current = false;
         return;
       }
-      if (isPlayingRef.current && !isPausedRef.current) {
-        setTimeout(() => speakSentence(index + 1), 50);
-      }
-    };
 
-    window.speechSynthesis.speak(utterance);
+      const sentence = sentences[index];
+      const utterance = new SpeechSynthesisUtterance(sentence);
+      utterance.lang = "zh-CN";
+      utterance.rate = rateRef.current;
+
+      try {
+        const voices = window.speechSynthesis.getVoices();
+        const zhVoice =
+          voices.find(
+            (v) =>
+              v.lang === "zh-CN" ||
+              v.lang === "zh_CN" ||
+              v.lang.toLowerCase().includes("zh-cn")
+          ) || voices.find((v) => v.lang.startsWith("zh"));
+
+        if (zhVoice) {
+          utterance.voice = zhVoice;
+        }
+      } catch {
+        // ignore voice selection error
+      }
+
+      utterance.onend = () => {
+        if (isPlayingRef.current && !isPausedRef.current) {
+          speakSentence(index + 1);
+        }
+      };
+
+      utterance.onerror = (e) => {
+        if (e.error === "canceled" || e.error === "interrupted" || !isPlayingRef.current) {
+          return;
+        }
+        if (isPlayingRef.current && !isPausedRef.current) {
+          setTimeout(() => speakSentence(index + 1), 50);
+        }
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn("ArticleReaderModal TTS error:", err);
+      setIsPlayingTts(false);
+      setIsPausedTts(false);
+      isPlayingRef.current = false;
+    }
   };
 
   const handlePlayTts = () => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    if (
+      typeof window === "undefined" ||
+      !("speechSynthesis" in window) ||
+      !window.speechSynthesis ||
+      typeof window.SpeechSynthesisUtterance === "undefined"
+    ) {
       alert("当前浏览器暂不支持语音朗读");
       return;
     }
     if (sentences.length === 0) return;
 
-    if (isPausedTts) {
-      window.speechSynthesis.resume();
-      setIsPausedTts(false);
-      setIsPlayingTts(true);
+    try {
+      if (isPausedTts) {
+        if (typeof window.speechSynthesis.resume === "function") {
+          window.speechSynthesis.resume();
+        }
+        setIsPausedTts(false);
+        setIsPlayingTts(true);
+        isPlayingRef.current = true;
+        isPausedRef.current = false;
+        return;
+      }
+
       isPlayingRef.current = true;
       isPausedRef.current = false;
-      return;
-    }
+      setIsPlayingTts(true);
+      setIsPausedTts(false);
 
-    isPlayingRef.current = true;
-    isPausedRef.current = false;
-    setIsPlayingTts(true);
-    setIsPausedTts(false);
-
-    window.speechSynthesis.cancel();
-    setTimeout(() => {
-      if (isPlayingRef.current) {
-        speakSentence(0);
+      if (typeof window.speechSynthesis.cancel === "function") {
+        window.speechSynthesis.cancel();
       }
-    }, 60);
+      setTimeout(() => {
+        if (isPlayingRef.current) {
+          speakSentence(0);
+        }
+      }, 60);
+    } catch (e) {
+      console.warn("handlePlayTts error:", e);
+    }
   };
 
   const handlePauseTts = () => {
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.pause();
-      setIsPausedTts(true);
-      isPausedRef.current = true;
+    try {
+      if (typeof window !== "undefined" && window.speechSynthesis && typeof window.speechSynthesis.pause === "function") {
+        window.speechSynthesis.pause();
+      }
+    } catch {
+      // ignore
     }
+    setIsPausedTts(true);
+    isPausedRef.current = true;
   };
 
   const handleStopTts = () => {
     isPlayingRef.current = false;
     isPausedRef.current = false;
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+    try {
+      if (typeof window !== "undefined" && window.speechSynthesis && typeof window.speechSynthesis.cancel === "function") {
+        window.speechSynthesis.cancel();
+      }
+    } catch {
+      // ignore
     }
     setIsPlayingTts(false);
     setIsPausedTts(false);
