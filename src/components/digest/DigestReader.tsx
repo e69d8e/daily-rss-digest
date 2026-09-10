@@ -141,8 +141,19 @@ export default function DigestReader() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "生成失败");
+        let errorText = "生成失败";
+        try {
+          const err = await res.json();
+          errorText = err.error || err.message || errorText;
+        } catch {
+          if (res.status === 502 || res.status === 504) {
+            errorText =
+              "云端请求超时 (502/504)。由于多源抓取及大模型提炼耗时较长，建议在设置中选用高吞吐高速模型或在本地/GitHub Action中按需触发。";
+          } else {
+            errorText = `请求处理异常 (${res.status})`;
+          }
+        }
+        throw new Error(errorText);
       }
 
       const newDigest = await res.json();
