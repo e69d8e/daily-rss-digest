@@ -14,6 +14,7 @@ import {
   Layers,
   Sparkles,
 } from "lucide-react";
+import { useConfirm } from "@/components/ui/ConfirmModal";
 
 interface FeedItem {
   id: string;
@@ -35,6 +36,7 @@ interface ChannelItem {
 }
 
 export default function FeedsSettingsTab() {
+  const confirm = useConfirm();
   const [feeds, setFeeds] = useState<FeedItem[]>([]);
   const [channels, setChannels] = useState<ChannelItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -146,8 +148,17 @@ export default function FeedsSettingsTab() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("确定要删除该 RSS 订阅源吗？")) return;
+  const handleDelete = async (id: string, feedTitle?: string) => {
+    const ok = await confirm({
+      title: "删除 RSS 订阅源",
+      content: "确定要删除该 RSS 订阅源吗？删除后将停止获取该源的最新内容，已有文章归档不会丢失。",
+      targetName: feedTitle,
+      confirmText: "确认删除",
+      cancelText: "取消",
+      variant: "danger",
+    });
+    if (!ok) return;
+
     try {
       await fetch(`/api/feeds?id=${id}`, { method: "DELETE" });
       loadData();
@@ -344,7 +355,7 @@ export default function FeedsSettingsTab() {
                     </a>
                   )}
                   <button
-                    onClick={() => handleDelete(feed.id)}
+                    onClick={() => handleDelete(feed.id, feed.title || feed.url)}
                     className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                     title="删除此源"
                   >

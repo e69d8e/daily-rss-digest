@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Navbar from "@/components/layout/Navbar";
+import { ConfirmProvider } from "@/components/ui/ConfirmModal";
 
 export const metadata: Metadata = {
   title: "Daily RSS Digest · 每日智汇晨报",
@@ -29,13 +30,15 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="min-h-screen flex flex-col bg-[#fcfbf9] text-stone-900 selection:bg-amber-100 selection:text-amber-900">
-        <Navbar />
-        <div className="flex-1">{children}</div>
-        <footer className="border-t border-[#eae6df] py-8 mt-16 text-center text-xs text-stone-400">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <p className="font-serif">Daily Briefing · 每日智汇晨报</p>
-          </div>
-        </footer>
+        <ConfirmProvider>
+          <Navbar />
+          <div className="flex-1">{children}</div>
+          <footer className="border-t border-[#eae6df] py-8 mt-16 text-center text-xs text-stone-400">
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+              <p className="font-serif">Daily Briefing · 每日智汇晨报</p>
+            </div>
+          </footer>
+        </ConfirmProvider>
       </body>
     </html>
   );

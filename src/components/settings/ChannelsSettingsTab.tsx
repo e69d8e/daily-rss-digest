@@ -18,6 +18,7 @@ import {
   X,
   Radio,
 } from "lucide-react";
+import { useConfirm } from "@/components/ui/ConfirmModal";
 
 interface FeedSourceSummary {
   id: string;
@@ -45,6 +46,7 @@ interface ChannelData {
 }
 
 export default function ChannelsSettingsTab() {
+  const confirm = useConfirm();
   const [channels, setChannels] = useState<ChannelData[]>([]);
   const [allFeeds, setAllFeeds] = useState<FeedSourceSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -256,7 +258,16 @@ export default function ChannelsSettingsTab() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`确定要删除频道「${name}」及其所有源和简报存档吗？`)) return;
+    const ok = await confirm({
+      title: "删除频道规则与存档",
+      content: "确定要删除该频道及其定制规则吗？频道下的所有订阅源将被移除，生成的简报存档也将一并清理，此操作不可撤销。",
+      targetName: name,
+      confirmText: "确认删除频道",
+      cancelText: "取消",
+      variant: "danger",
+    });
+    if (!ok) return;
+
     try {
       await fetch(`/api/channels?id=${id}`, { method: "DELETE" });
       loadData();
@@ -269,7 +280,15 @@ export default function ChannelsSettingsTab() {
   const handleDetachFeed = async (feedId: string, currentChannelId: string, feedTitle: string) => {
     const otherChannels = channels.filter((c) => c.id !== currentChannelId);
     if (otherChannels.length === 0) {
-      if (confirm(`当前只有一个频道，是否直接删除订阅源「${feedTitle}」？`)) {
+      const ok = await confirm({
+        title: "删除订阅源",
+        content: "当前仅有此频道，从该频道移除将直接彻底删除该订阅源。是否确认删除？",
+        targetName: feedTitle,
+        confirmText: "确认删除源",
+        cancelText: "取消",
+        variant: "danger",
+      });
+      if (ok) {
         await fetch(`/api/feeds?id=${feedId}`, { method: "DELETE" });
         loadData();
       }
@@ -277,11 +296,16 @@ export default function ChannelsSettingsTab() {
     }
 
     const targetChannel = otherChannels[0];
-    if (
-      confirm(
-        `是否将订阅源「${feedTitle}」从当前频道移出，并转移至「${targetChannel.name}」？`
-      )
-    ) {
+    const ok = await confirm({
+      title: "转移订阅源",
+      content: `是否将该订阅源从当前频道移出，并重新绑定至「${targetChannel.name}」？`,
+      targetName: feedTitle,
+      confirmText: "确认转移",
+      cancelText: "取消",
+      variant: "warning",
+    });
+
+    if (ok) {
       try {
         await fetch("/api/feeds", {
           method: "PUT",

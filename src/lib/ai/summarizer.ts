@@ -70,13 +70,13 @@ export async function generateAiDigest({
     });
   }
 
-  // 压缩文章输入以防超长
-  const articlesInput = articles.slice(0, 40).map((a, idx) => ({
+  // 压缩文章输入以防超长并聚焦当日重点（精选前 20 篇）
+  const articlesInput = articles.slice(0, 20).map((a, idx) => ({
     id: idx + 1,
     title: a.title,
     source: a.sourceName,
     link: a.link,
-    content: (a.fullContent || a.snippet || "").slice(0, 600),
+    content: (a.fullContent || a.snippet || "").slice(0, 450),
   }));
 
   const systemPrompt = `你是一位顶级科技新闻主编与行业分析师，专门为用户制作高质量的“每日智汇晨报”。
@@ -86,12 +86,12 @@ export async function generateAiDigest({
 3. 严格输出符合以下 JSON 结构的纯 JSON 文本（不要包含任何 markdown 代码块外部包裹）：
 {
   "title": "${targetDate} ${channelName}·今日智汇晨报",
-  "overview": "一两段精炼的全局今日总览，提炼今日最关键趋势与大事件（可使用精简 Markdown 格式）",
+  "overview": "一两段精炼的全局今日总览，提炼今日最关键趋势与大事件（100-180字，可使用精简 Markdown 格式）",
   "topics": [
     {
       "id": "t1",
       "title": "主题标题（有力、抓人眼球且客观精准）",
-      "summary": "该主题的核心进展解析，归纳背景、事实演进和行业影响（200-300字）",
+      "summary": "该主题的核心进展解析，归纳背景、事实演进和行业影响（150-250字）",
       "impactScore": 9, // 1-10 影响力打分
       "sentiment": "positive | neutral | negative | critical",
       "tags": ["标签1", "标签2"],
@@ -99,10 +99,9 @@ export async function generateAiDigest({
     }
   ],
   "industryInsights": [
-    "趋势洞察点1...",
-    "趋势洞察点2..."
-  ],
-  "audioText": "【重要：3-5分钟深度广播稿，字数需达到 800 - 1500 字】人设为专业新闻广播主播。要求：1. 早间开场与今日宏观走势总结；2. 依次详细深入剖析上述每一个焦点议题，清晰阐述事实背景、核心进展、各方报道观点与行业深远影响（每个主题深入叙述150-250字）；3. 综合趋势洞察与宏观点评；4. 亲和结语。使用纯口语自然段落，标准标点符号分句，不要包含任何 markdown 符号或括号等干扰朗读的字符。"
+    "趋势洞察点1（50-100字）...",
+    "趋势洞察点2（50-100字）..."
+  ]
 }`;
 
   const userPrompt = `【频道名称】：${channelName}

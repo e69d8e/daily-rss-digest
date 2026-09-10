@@ -250,6 +250,19 @@ npm run start
 
 部署完成后，点击 Netlify 提供的专属域名即可直接在线访问。
 
+### 步骤 4：配置 GitHub Actions 自动化定时任务（彻底规避 Serverless 超时）
+为彻底解决 Serverless 平台对长耗时任务（多源爬虫与大模型深度提炼）的 10 秒超时限制，项目内置了全自动化 GitHub Actions 工作流（[`.github/workflows/daily-digest.yml`](./.github/workflows/daily-digest.yml)）：
+
+1. 进入代码仓库的 **Settings** -> **Secrets and variables** -> **Actions**。
+2. 点击 **New repository secret**，配置以下密钥：
+   - `TURSO_DATABASE_URL`：Turso 云数据库连接串（`libsql://...`）
+   - `TURSO_AUTH_TOKEN`：Turso 访问 Token
+   - `BASE_URL`：（可选）线上访问域名，例如 `https://daily-rss-digest.netlify.app`
+   - `AI_API_KEY`：（可选）若未在 Web 设置中心配置，可直接在此注入
+3. **运行机制**：
+   - **每日定时**：每天北京时间早晨 **08:00**（UTC 00:00）自动抓取全网源并写入 Turso 数据库。
+   - **手动一键触发**：进入 GitHub **Actions** 页面，选择 **Daily RSS Digest Generator** -> **Run workflow**，即可按需随时触发即时生成。
+
 ---
 
 ## 📡 核心 API 清单 (API Reference)

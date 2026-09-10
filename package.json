@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "db:seed": "npx tsx prisma/seed.ts"
+    "db:seed": "npx tsx prisma/seed.ts",
+    "digest:generate": "npx tsx scripts/generate-daily.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

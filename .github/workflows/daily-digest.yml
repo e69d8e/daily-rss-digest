@@ -1,0 +1,53 @@
+name: Daily RSS Digest Generator
+
+on:
+  # 每日定时触发（UTC 00:00 = 北京时间早晨 08:00）
+  schedule:
+    - cron: '0 0 * * *'
+
+  # 支持在 GitHub Actions 界面手动点击一键运行
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: '指定生成日期 (YYYY-MM-DD，留空则默认为当天)'
+        required: false
+        default: ''
+      channel_id:
+        description: '指定频道 ID (留空则全量生成所有激活频道)'
+        required: false
+        default: ''
+
+concurrency:
+  group: daily-digest-generator
+  cancel-in-progress: false
+
+jobs:
+  generate-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出代码仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 安装项目依赖
+        run: npm ci
+
+      - name: 生成 Prisma Client
+        run: npx prisma generate
+
+      - name: 执行每日晨报生成与推送
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BASE_URL: ${{ secrets.BASE_URL || 'https://daily-rss-digest.netlify.app' }}
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
+          CHANNEL_ID: ${{ github.event.inputs.channel_id }}
+        run: npm run digest:generate

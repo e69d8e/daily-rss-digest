@@ -79,10 +79,7 @@ export async function GET(req: Request) {
     }
 
     if (!digest) {
-      return NextResponse.json(
-        { message: "该日期尚未生成简报", channelId },
-        { status: 404 }
-      );
+      return NextResponse.json(null, { status: 200 });
     }
 
     // 解析 sectionsJson

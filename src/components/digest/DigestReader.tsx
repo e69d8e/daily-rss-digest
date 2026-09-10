@@ -95,9 +95,13 @@ export default function DigestReader() {
       .then(async (res) => {
         if (res.ok) {
           const data = await res.json();
-          setCurrentDigest(data);
-          if (!selectedDate && data.date) {
-            setSelectedDate(data.date);
+          if (data && data.id) {
+            setCurrentDigest(data);
+            if (!selectedDate && data.date) {
+              setSelectedDate(data.date);
+            }
+          } else {
+            setCurrentDigest(null);
           }
         } else {
           setCurrentDigest(null);

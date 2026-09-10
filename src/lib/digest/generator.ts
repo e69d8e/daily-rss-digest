@@ -76,9 +76,9 @@ export async function generateDailyDigestForChannel({
           fullContent = await fetchArticleFullText(item.link);
         }
 
-        // 1. 保存到数据库供留存（在过滤前入库，真实记录源活跃历史）
-        try {
-          await prisma.article.create({
+        // 1. 异步留存原始文章（非阻塞，防止几十篇远程数据库插入拖慢生成响应）
+        prisma.article
+          .create({
             data: {
               feedSourceId: source.id,
               title: item.title,
@@ -88,10 +88,8 @@ export async function generateDailyDigestForChannel({
               summarySnippet: item.contentSnippet,
               fullContent: fullContent || null,
             },
-          });
-        } catch {
-          // 忽略已入库文章
-        }
+          })
+          .catch(() => {});
 
         // 2. 过滤检查（仅针对送入 AI 提炼的候选文章）
         // 黑名单词（如“招聘”、“广告”）优先精准匹配标题，防止作者简介或专栏固定导言包含“招人”导致整篇误杀
