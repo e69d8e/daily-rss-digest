@@ -1,0 +1,99 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 频道与汇总合辑 (如 "科技与 AI", "商业财经", "独立开发")
+model Channel {
+  id              String        @id @default(cuid())
+  name            String
+  slug            String        @unique
+  description     String?
+  icon            String        @default("newspaper")
+  scheduleTime    String        @default("08:00") // 每日自动汇总时间 (HH:mm)
+  promptTemplate  String?       // 频道专用定制 Prompt
+  filterKeywords  String?       // JSON: { "include": ["AI", "大模型"], "exclude": ["招聘", "推广"] }
+  isEnabled       Boolean       @default(true)
+  sources         FeedSource[]
+  digests         DailyDigest[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+// RSS 源
+model FeedSource {
+  id              String        @id @default(cuid())
+  channelId       String
+  channel         Channel       @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  title           String
+  url             String
+  siteUrl         String?
+  iconUrl         String?
+  isFullTextFetch Boolean       @default(false) // 是否抓取正文全文
+  lastFetchedAt   DateTime?
+  status          String        @default("ACTIVE") // ACTIVE, ERROR
+  lastError       String?
+  articles        Article[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+// 抓取到的原始文章
+model Article {
+  id              String        @id @default(cuid())
+  feedSourceId    String
+  feedSource      FeedSource    @relation(fields: [feedSourceId], references: [id], onDelete: Cascade)
+  title           String
+  link            String
+  author          String?
+  publishedAt     DateTime
+  summarySnippet  String?
+  fullContent     String?       // 抓取并清洗后的正文
+  isRead          Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+}
+
+// 每日生成的智能简报
+model DailyDigest {
+  id              String        @id @default(cuid())
+  channelId       String
+  channel         Channel       @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  date            String        // 格式 YYYY-MM-DD
+  title           String        // 如 "2026年9月10日 科技与AI每日晨报"
+  overview        String        // 今日要点速览 / TL;DR (Markdown 格式)
+  sectionsJson    String        // 聚类专题数据 (JSON: TopicCard[])
+  rawAiOutput     String?
+  audioText       String?       // 供 TTS 播报的高清提炼稿
+  articleCount    Int           @default(0)
+  status          String        @default("COMPLETED") // PENDING, PROCESSING, COMPLETED, FAILED
+  error           String?
+  deliveryLogs    DeliveryLog[]
+  createdAt       DateTime      @default(now())
+
+  @@unique([channelId, date])
+}
+
+// 全局系统与分发配置
+model SystemSetting {
+  key             String        @id
+  value           String
+  description     String?
+  updatedAt       DateTime      @updatedAt
+}
+
+// 推送与投递日志
+model DeliveryLog {
+  id                String      @id @default(cuid())
+  digestId          String
+  digest            DailyDigest @relation(fields: [digestId], references: [id], onDelete: Cascade)
+  targetType        String      // WEBHOOK_FEISHU, WEBHOOK_WECOM, WEBHOOK_TELEGRAM, WEBHOOK_DISCORD, EMAIL, RSS
+  targetDestination String
+  status            String      // SUCCESS, FAILED
+  message           String?
+  sentAt            DateTime    @default(now())
+}

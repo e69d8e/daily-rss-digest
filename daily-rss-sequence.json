@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Daily RSS Digest 核心业务时序图",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1000, 780],
+    "views": [
+      {
+        "id": "fetch-and-ingest",
+        "label": "1. 触发与多源抓取",
+        "focus": ["user", "api", "engine", "db", "rss"],
+        "note": "从 Cron 或手动触发开始，读取频道规则并并发抓取外部 RSS 资讯与正文"
+      },
+      {
+        "id": "ai-clustering",
+        "label": "2. 过滤与 AI 议题提炼",
+        "focus": ["engine", "db", "ai"],
+        "note": "关键词黑白名单过滤后，提交候选集给 AI 提炼跨源议题与生成播音文稿"
+      },
+      {
+        "id": "store-and-notify",
+        "label": "3. 存储归档与全渠道派发",
+        "focus": ["engine", "db", "push", "api", "user"],
+        "note": "Upsert 存入 SQLite，并发投递至飞书、企微、Telegram、Discord 及邮件"
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "用户 / 定时",
+      "sublabel": "触发晨报"
+    },
+    {
+      "id": "api",
+      "type": "frontend",
+      "label": "Next.js",
+      "sublabel": "/api/digests",
+      "brand": "next-js"
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "生成引擎",
+      "sublabel": "核心调度"
+    },
+    {
+      "id": "rss",
+      "type": "external",
+      "label": "外部 RSS",
+      "sublabel": "Feed / HTML"
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "Prisma ORM",
+      "brand": "sqlite"
+    },
+    {
+      "id": "ai",
+      "type": "backend",
+      "label": "AI 引擎",
+      "sublabel": "OpenAI 协议",
+      "brand": "openai"
+    },
+    {
+      "id": "push",
+      "type": "messagebus",
+      "label": "消息派发",
+      "sublabel": "Webhook/SMTP"
+    }
+  ],
+  "segments": [
+    {
+      "from": 155,
+      "to": 350,
+      "label": "1. 触发与数据采集"
+    },
+    {
+      "from": 360,
+      "to": 510,
+      "label": "2. 规则过滤与 AI 聚类提炼"
+    },
+    {
+      "from": 520,
+      "to": 710,
+      "label": "3. 持久化存储与全渠道触达"
+    }
+  ],
+  "messages": [
+    {
+      "id": "trigger-digest",
+      "from": "user",
+      "to": "api",
+      "y": 175,
+      "label": "触发今日晨报 (Cron / 手动)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "invoke-generator",
+      "from": "api",
+      "to": "engine",
+      "y": 215,
+      "label": "调用 generateDailyDigest()",
+      "variant": "default"
+    },
+    {
+      "id": "query-feeds",
+      "from": "engine",
+      "to": "db",
+      "y": 255,
+      "label": "查询启用源与过滤规则",
+      "variant": "default"
+    },
+    {
+      "id": "return-feeds",
+      "from": "db",
+      "to": "engine",
+      "y": 295,
+      "label": "返回订阅源列表",
+      "variant": "return"
+    },
+    {
+      "id": "fetch-feed-xml",
+      "from": "engine",
+      "to": "rss",
+      "y": 335,
+      "label": "抓取 Feed XML & 正文 HTML",
+      "variant": "emphasis"
+    },
+    {
+      "id": "return-articles",
+      "from": "rss",
+      "to": "engine",
+      "y": 375,
+      "label": "返回清洗后文章列表",
+      "variant": "return"
+    },
+    {
+      "id": "persist-filtered",
+      "from": "engine",
+      "to": "db",
+      "y": 415,
+      "label": "留存文章并执行关键词过滤",
+      "variant": "dashed"
+    },
+    {
+      "id": "request-ai-clustering",
+      "from": "engine",
+      "to": "ai",
+      "y": 455,
+      "label": "提交候选集请求聚类与摘要",
+      "variant": "emphasis"
+    },
+    {
+      "id": "return-ai-insights",
+      "from": "ai",
+      "to": "engine",
+      "y": 495,
+      "label": "返回议题聚类、评分与 TTS 文稿",
+      "variant": "return"
+    },
+    {
+      "id": "upsert-digest",
+      "from": "engine",
+      "to": "db",
+      "y": 535,
+      "label": "Upsert 存储当日 DailyDigest",
+      "variant": "default"
+    },
+    {
+      "id": "dispatch-notifications",
+      "from": "engine",
+      "to": "push",
+      "y": 575,
+      "label": "派发飞书/企微/TG/Discord/邮件",
+      "variant": "emphasis"
+    },
+    {
+      "id": "log-delivery",
+      "from": "push",
+      "to": "engine",
+      "y": 615,
+      "label": "写入 DeliveryLog 日志",
+      "variant": "return"
+    },
+    {
+      "id": "return-completed-digest",
+      "from": "engine",
+      "to": "api",
+      "y": 655,
+      "label": "返回最新排版完整晨报",
+      "variant": "return"
+    },
+    {
+      "id": "render-view",
+      "from": "api",
+      "to": "user",
+      "y": 695,
+      "label": "报刊视图渲染 & TTS 就绪",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "user",
+      "from": 170,
+      "to": 700,
+      "type": "external"
+    },
+    {
+      "participant": "api",
+      "from": 175,
+      "to": 700,
+      "type": "frontend"
+    },
+    {
+      "participant": "engine",
+      "from": 215,
+      "to": 660,
+      "type": "backend"
+    },
+    {
+      "participant": "db",
+      "from": 250,
+      "to": 300,
+      "type": "database"
+    },
+    {
+      "participant": "rss",
+      "from": 330,
+      "to": 380,
+      "type": "external"
+    },
+    {
+      "participant": "db",
+      "from": 410,
+      "to": 425,
+      "type": "database"
+    },
+    {
+      "participant": "ai",
+      "from": 450,
+      "to": 500,
+      "type": "backend"
+    },
+    {
+      "participant": "db",
+      "from": 530,
+      "to": 545,
+      "type": "database"
+    },
+    {
+      "participant": "push",
+      "from": 570,
+      "to": 620,
+      "type": "messagebus"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "端到端自动化流水线",
+      "items": [
+        "支持 Crontab 定时与 Web API 手动双模触发",
+        "单次运行自动拉取、正文提取、规则清洗入库与去重"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "AI 跨源聚类与多维产出",
+      "items": [
+        "OpenAI 协议统一对接，支持主流 LLM 与本地模型",
+        "一次提炼同步产出议题分类、影响力打分与 TTS 播文"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "多渠道触达与全链路可观测",
+      "items": [
+        "Web 端报刊排版配合 Web Speech 原生语音即刻呈现",
+        "覆盖主流即时通信与邮件，投递状态实时留痕"
+      ]
+    }
+  ]
+}

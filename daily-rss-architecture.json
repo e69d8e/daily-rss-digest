@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Daily RSS Digest 系统架构图",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1160, 570],
+    "views": [
+      {
+        "id": "ingestion-flow",
+        "label": "资讯摄取与存储",
+        "focus": ["rss-sources", "parser-engine", "filter-rules", "prisma-orm", "database"],
+        "note": "多源 RSS/OPML 抓取清洗并由 Prisma 持久化至 SQLite 数据库"
+      },
+      {
+        "id": "ai-synthesis",
+        "label": "AI 提炼与晨报生成",
+        "focus": ["cron-scheduler", "digest-engine", "prisma-orm", "ai-engine"],
+        "note": "调度引擎提取候选资讯，由 AI 进行跨源议题聚类与文稿提炼"
+      },
+      {
+        "id": "delivery-channels",
+        "label": "全端交互与多渠道推送",
+        "focus": ["ai-engine", "next-app", "notification-hub"],
+        "note": "Next.js 报刊阅览器与飞书、企微、Telegram、Discord、邮件等多渠道分发"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "rss-sources",
+      "type": "external",
+      "label": "RSS / OPML 源",
+      "sublabel": "多源 Feed 资讯输入",
+      "pos": [40, 190],
+      "size": [140, 56]
+    },
+    {
+      "id": "parser-engine",
+      "type": "backend",
+      "label": "Feed 解析清洗引擎",
+      "sublabel": "rss-parser + cheerio",
+      "tag": "正文提取",
+      "pos": [250, 190],
+      "size": [150, 56]
+    },
+    {
+      "id": "filter-rules",
+      "type": "security",
+      "label": "关键词规则过滤",
+      "sublabel": "黑白名单降噪",
+      "pos": [250, 330],
+      "size": [150, 56]
+    },
+    {
+      "id": "cron-scheduler",
+      "type": "backend",
+      "label": "定时调度器",
+      "sublabel": "Cron / API 触发",
+      "pos": [480, 50],
+      "size": [160, 56]
+    },
+    {
+      "id": "digest-engine",
+      "type": "backend",
+      "label": "晨报生成调度引擎",
+      "sublabel": "核心编排器",
+      "pos": [480, 190],
+      "size": [160, 56]
+    },
+    {
+      "id": "prisma-orm",
+      "type": "backend",
+      "label": "Prisma ORM",
+      "sublabel": "数据持久化抽象",
+      "brand": "prisma",
+      "pos": [480, 330],
+      "size": [160, 56]
+    },
+    {
+      "id": "database",
+      "type": "database",
+      "label": "SQLite 数据库",
+      "sublabel": "dev.db 单文件存储",
+      "brand": "sqlite",
+      "pos": [480, 460],
+      "size": [160, 56]
+    },
+    {
+      "id": "ai-engine",
+      "type": "backend",
+      "label": "AI 聚类提炼引擎",
+      "sublabel": "OpenAI 兼容协议",
+      "brand": "openai",
+      "tag": "DeepSeek / GPT",
+      "pos": [730, 190],
+      "size": [150, 56]
+    },
+    {
+      "id": "next-app",
+      "type": "frontend",
+      "label": "报刊级 Web 阅览器",
+      "sublabel": "Next.js 16 + React 19",
+      "brand": "next-js",
+      "tag": "Web Speech TTS",
+      "pos": [960, 120],
+      "size": [160, 56]
+    },
+    {
+      "id": "notification-hub",
+      "type": "messagebus",
+      "label": "多渠道消息派发",
+      "sublabel": "Webhook & SMTP 投递",
+      "tag": "飞书/企微/TG/Discord",
+      "pos": [960, 270],
+      "size": [160, 56]
+    }
+  ],
+  "connections": [
+    {
+      "id": "rss-fetch",
+      "from": "rss-sources",
+      "to": "parser-engine",
+      "label": "Feed 抓取",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "content-clean",
+      "from": "parser-engine",
+      "to": "filter-rules",
+      "label": "正文清洗",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "article-save",
+      "from": "filter-rules",
+      "to": "prisma-orm",
+      "label": "文章持久化",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "cron-trigger",
+      "from": "cron-scheduler",
+      "to": "digest-engine",
+      "label": "定时触发",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "query-articles",
+      "from": "digest-engine",
+      "to": "prisma-orm",
+      "label": "查询候选集",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "db-access",
+      "from": "prisma-orm",
+      "to": "database",
+      "label": "SQL 操作",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "ai-summarize",
+      "from": "digest-engine",
+      "to": "ai-engine",
+      "label": "议题聚类与提炼",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "web-reader-delivery",
+      "from": "ai-engine",
+      "to": "next-app",
+      "label": "晨报与语音文稿",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "dispatch-notifications",
+      "from": "ai-engine",
+      "to": "notification-hub",
+      "label": "多渠道卡片投递",
+      "fromSide": "right",
+      "toSide": "left"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "1. 资讯摄取与解析层",
+      "items": [
+        "兼容 RSS 2.0 / Atom 1.0 / JSON Feed 及 OPML 导入导出",
+        "全网正文抓取（Cheerio 清洗）与黑白名单关键词精准降噪"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "2. 持久化与 AI 提炼层",
+      "items": [
+        "Prisma ORM + SQLite 单文件极简存储，无复杂依赖",
+        "兼容 OpenAI / DeepSeek / Ollama，实现议题聚类与 TTS 播文"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "3. 多端交互与推送层",
+      "items": [
+        "Next.js 16 报刊杂志级排版与 Web Speech 原生流式朗读",
+        "覆盖飞书卡片、企微、Telegram、Discord 及 SMTP 邮件全渠道"
+      ]
+    }
+  ]
+}
