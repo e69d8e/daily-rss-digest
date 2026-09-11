@@ -49,6 +49,33 @@ interface DigestData {
   }[];
 }
 
+function getTodayDateStr(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDateString(dateStr: string, days: number): string {
+  if (!dateStr) return getTodayDateStr();
+  const parts = dateStr.split("-").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return getTodayDateStr();
+  const [y, m, d] = parts;
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days);
+  const nextY = date.getFullYear();
+  const nextM = String(date.getMonth() + 1).padStart(2, "0");
+  const nextD = String(date.getDate()).padStart(2, "0");
+  return `${nextY}-${nextM}-${nextD}`;
+}
+
+// 客户端内存缓存：用于频道间高速无感切换，避免重复发起网络请求与出现白屏/Loading动画闪烁
+const digestCache = new Map<string, DigestData | null>();
+const historyCache = new Map<string, { date: string; title: string }[]>();
+const articlesCache = new Map<string, any[]>();
+const channelDateMap = new Map<string, string>();
+
 export default function DigestReader() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
@@ -65,6 +92,12 @@ export default function DigestReader() {
     title?: string;
     sourceName?: string;
   } | null>(null);
+  const [channelArticles, setChannelArticles] = useState<any[]>([]);
+
+  const todayStr = getTodayDateStr();
+  const currentDate = selectedDate || currentDigest?.date || todayStr;
+  const isToday = currentDate === todayStr;
+  const isNextDisabled = currentDate >= todayStr;
 
   // 1. 加载频道列表
   useEffect(() => {
@@ -83,60 +116,159 @@ export default function DigestReader() {
       });
   }, []);
 
-  // 2. 加载当前频道的简报与历史日期
+  // 2. 加载当前频道的简报、历史日期与候选文章（带内存缓存与竞态控制）
   useEffect(() => {
     if (!selectedChannel) return;
 
-    setLoading(true);
-    setErrorMsg("");
+    let active = true;
+    const chId = selectedChannel.id;
+    const targetDate = selectedDate;
+    const digestKey = `${chId}:${targetDate || "latest"}`;
 
-    const dateQuery = selectedDate ? `&date=${selectedDate}` : "";
-    fetch(`/api/digests?channelId=${selectedChannel.id}${dateQuery}`)
-      .then(async (res) => {
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.id) {
-            setCurrentDigest(data);
-            if (!selectedDate && data.date) {
-              setSelectedDate(data.date);
+    // A. 简报内容：优先从内存缓存获取，避免重复请求和全屏加载闪烁
+    if (digestCache.has(digestKey)) {
+      setCurrentDigest(digestCache.get(digestKey) ?? null);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setErrorMsg("");
+
+      const dateQuery = targetDate ? `&date=${targetDate}` : "";
+      fetch(`/api/digests?channelId=${chId}${dateQuery}`)
+        .then(async (res) => {
+          if (!active) return;
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.id) {
+              digestCache.set(digestKey, data);
+              if (data.date) {
+                digestCache.set(`${chId}:${data.date}`, data);
+                if (!channelDateMap.has(chId)) {
+                  channelDateMap.set(chId, data.date);
+                }
+              }
+              setCurrentDigest(data);
+            } else {
+              digestCache.set(digestKey, null);
+              setCurrentDigest(null);
             }
           } else {
+            digestCache.set(digestKey, null);
             setCurrentDigest(null);
           }
-        } else {
+        })
+        .catch((err) => {
+          if (!active) return;
+          console.error("加载简报异常:", err);
           setCurrentDigest(null);
-        }
-      })
-      .catch((err) => {
-        console.error(err);
-        setCurrentDigest(null);
-      })
-      .finally(() => setLoading(false));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }
 
-    // 加载历史日期列表
-    fetch(`/api/digests?channelId=${selectedChannel.id}&listHistory=true`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setHistoryDates(data);
-        }
-      })
-      .catch(console.error);
+    // B. 加载历史日期列表：已有缓存直接使用
+    if (historyCache.has(chId)) {
+      setHistoryDates(historyCache.get(chId)!);
+    } else {
+      fetch(`/api/digests?channelId=${chId}&listHistory=true`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (!active) return;
+          if (Array.isArray(data)) {
+            historyCache.set(chId, data);
+            setHistoryDates(data);
+          }
+        })
+        .catch(console.error);
+    }
+
+    // C. 加载候选文章原料：已有缓存直接使用
+    if (articlesCache.has(chId)) {
+      setChannelArticles(articlesCache.get(chId)!);
+    } else {
+      fetch(`/api/articles?channelId=${chId}&limit=20`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (!active) return;
+          if (Array.isArray(data)) {
+            articlesCache.set(chId, data);
+            setChannelArticles(data);
+          }
+        })
+        .catch(console.error);
+    }
+
+    return () => {
+      active = false;
+    };
   }, [selectedChannel, selectedDate]);
 
-  // 3. 立即触发抓取与生成
+  // 统一的日期选择与切换处理函数（优先命中缓存）
+  const handleSelectDate = (newDate: string) => {
+    if (!selectedChannel) return;
+    channelDateMap.set(selectedChannel.id, newDate);
+
+    const cacheKey = `${selectedChannel.id}:${newDate}`;
+    if (digestCache.has(cacheKey)) {
+      setCurrentDigest(digestCache.get(cacheKey) ?? null);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    setSelectedDate(newDate);
+  };
+
+  // 频道切换处理函数：立即从缓存恢复，实现 0ms 瞬时切换且无需重复发起网络请求
+  const handleSelectChannel = (channel: Channel) => {
+    if (selectedChannel?.id === channel.id) return;
+
+    // 记录离开前频道的当前日期
+    if (selectedChannel) {
+      channelDateMap.set(selectedChannel.id, currentDate);
+    }
+
+    // 查询目标频道历史阅读日期或默认最新
+    const targetDate = channelDateMap.get(channel.id) || "";
+    const digestKey = `${channel.id}:${targetDate || "latest"}`;
+
+    // 1. 同步恢复 Digest 缓存（若命中直接渲染）
+    if (digestCache.has(digestKey)) {
+      setCurrentDigest(digestCache.get(digestKey) ?? null);
+      setLoading(false);
+    } else {
+      setCurrentDigest(null);
+      setLoading(true);
+    }
+
+    // 2. 同步恢复该频道的往期历史与候选文章
+    if (historyCache.has(channel.id)) {
+      setHistoryDates(historyCache.get(channel.id)!);
+    }
+    if (articlesCache.has(channel.id)) {
+      setChannelArticles(articlesCache.get(channel.id)!);
+    }
+
+    setSelectedChannel(channel);
+    setSelectedDate(targetDate);
+  };
+
+  // 3. 立即触发抓取与生成（强制刷新缓存）
   const handleGenerate = async () => {
     if (!selectedChannel) return;
+    const chId = selectedChannel.id;
     setGenerating(true);
     setErrorMsg("");
+
+    const targetDate = currentDate;
 
     try {
       const res = await fetch("/api/digests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channelId: selectedChannel.id,
-          date: new Date().toISOString().split("T")[0],
+          channelId: chId,
+          date: targetDate,
         }),
       });
 
@@ -157,13 +289,41 @@ export default function DigestReader() {
       }
 
       const newDigest = await res.json();
-      setSelectedDate(newDigest.date);
-      const reloadRes = await fetch(
-        `/api/digests?channelId=${selectedChannel.id}&date=${newDigest.date}`
-      );
-      if (reloadRes.ok) {
-        setCurrentDigest(await reloadRes.json());
+      
+      // 更新该频道对应日期的缓存
+      digestCache.set(`${chId}:${newDigest.date}`, newDigest);
+      digestCache.set(`${chId}:latest`, newDigest);
+      if (targetDate) {
+        digestCache.set(`${chId}:${targetDate}`, newDigest);
       }
+      channelDateMap.set(chId, newDigest.date);
+
+      setSelectedDate(newDigest.date);
+      setCurrentDigest(newDigest);
+
+      // 刷新历史列表并更新缓存
+      historyCache.delete(chId);
+      fetch(`/api/digests?channelId=${chId}&listHistory=true`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            historyCache.set(chId, data);
+            setHistoryDates(data);
+          }
+        })
+        .catch(console.error);
+
+      // 刷新候选文章并更新缓存
+      articlesCache.delete(chId);
+      fetch(`/api/articles?channelId=${chId}&limit=20`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            articlesCache.set(chId, data);
+            setChannelArticles(data);
+          }
+        })
+        .catch(console.error);
     } catch (e: any) {
       setErrorMsg(e.message);
     } finally {
@@ -194,27 +354,17 @@ export default function DigestReader() {
     }
   };
 
-  // 前后日期导航
-  const currentHistoryIndex = Array.isArray(historyDates)
-    ? historyDates.findIndex(
-        (h) => h.date === (currentDigest?.date || selectedDate)
-      )
-    : -1;
-
+  // 前后日期导航：按自然日切换，优先使用缓存
   const handlePrevDay = () => {
-    if (currentHistoryIndex < historyDates.length - 1) {
-      setSelectedDate(historyDates[currentHistoryIndex + 1].date);
-    }
+    const prev = shiftDateString(currentDate, -1);
+    handleSelectDate(prev);
   };
 
   const handleNextDay = () => {
-    if (currentHistoryIndex > 0) {
-      setSelectedDate(historyDates[currentHistoryIndex - 1].date);
-    }
+    if (isNextDisabled) return;
+    const next = shiftDateString(currentDate, 1);
+    handleSelectDate(next);
   };
-
-  const todayStr = new Date().toISOString().split("T")[0];
-  const isToday = (currentDigest?.date || selectedDate) === todayStr;
 
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 sm:space-y-6">
@@ -225,10 +375,7 @@ export default function DigestReader() {
           return (
             <button
               key={ch.id}
-              onClick={() => {
-                setSelectedChannel(ch);
-                setSelectedDate("");
-              }}
+              onClick={() => handleSelectChannel(ch)}
               className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                 isSelected
                   ? "bg-stone-900 text-white shadow-2xs"
@@ -244,46 +391,58 @@ export default function DigestReader() {
       {/* 2. 微型工具条：日期切换 + 操作按钮（移动端自适应分栏） */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs py-2 sm:py-2.5 border-y border-[#eae6df]/70">
         {/* 日期选择与往期前后切换 */}
-        <div className="flex items-center justify-between sm:justify-start gap-1 sm:gap-1.5 text-stone-600 w-full sm:w-auto">
+        <div className="flex items-center justify-between sm:justify-start gap-1 sm:gap-2 text-stone-600 w-full sm:w-auto">
           <div className="flex items-center gap-0.5 sm:gap-1">
             <button
               onClick={handlePrevDay}
-              disabled={currentHistoryIndex >= historyDates.length - 1}
-              className="p-1 sm:p-1.5 rounded hover:bg-stone-100 disabled:opacity-30 cursor-pointer"
-              title="查看前一期"
+              className="p-1 sm:p-1.5 rounded hover:bg-stone-100 cursor-pointer text-stone-600 hover:text-stone-900 transition-colors"
+              title={`前一天 (${shiftDateString(currentDate, -1)})`}
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
 
             <button
               onClick={() => setShowHistoryModal(true)}
-              className="flex items-center gap-1 font-mono font-medium text-stone-800 hover:text-amber-800 px-1.5 py-0.5 rounded hover:bg-stone-100 cursor-pointer"
-              title="选择往期归档"
+              className="flex items-center gap-1.5 font-mono font-medium text-stone-800 hover:text-amber-800 px-2 py-1 rounded hover:bg-stone-100 cursor-pointer transition-colors"
+              title="选择日期与往期归档"
             >
-              <span>{currentDigest?.date || selectedDate || todayStr}</span>
-              {isToday && (
-                <span className="text-[10px] font-sans bg-amber-50 text-amber-800 border border-amber-200/60 px-1.5 rounded">
+              <Calendar className="w-3.5 h-3.5 text-stone-400" />
+              <span>{currentDate}</span>
+              {isToday ? (
+                <span className="text-[10px] font-sans bg-amber-50 text-amber-800 border border-amber-200/60 px-1.5 py-0.5 rounded font-normal">
                   今日
+                </span>
+              ) : (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSelectDate(todayStr);
+                  }}
+                  className="text-[10px] font-sans bg-stone-100 hover:bg-amber-100 hover:text-amber-900 text-stone-600 border border-stone-200 px-1.5 py-0.5 rounded transition-colors"
+                  title="点击回到今日"
+                >
+                  回到今日
                 </span>
               )}
             </button>
 
             <button
               onClick={handleNextDay}
-              disabled={currentHistoryIndex <= 0}
-              className="p-1 sm:p-1.5 rounded hover:bg-stone-100 disabled:opacity-30 cursor-pointer"
-              title="查看后一期"
+              disabled={isNextDisabled}
+              className="p-1 sm:p-1.5 rounded hover:bg-stone-100 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed text-stone-600 hover:text-stone-900 transition-colors"
+              title={isNextDisabled ? "已是最新日期 (今天)" : `后一天 (${shiftDateString(currentDate, 1)})`}
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {historyDates.length > 1 && (
+          {historyDates.length > 0 && (
             <button
               onClick={() => setShowHistoryModal(true)}
-              className="text-[11px] text-stone-400 hover:text-stone-700 ml-1 underline underline-offset-2 cursor-pointer"
+              className="text-[11px] text-stone-500 hover:text-stone-800 ml-1 underline underline-offset-2 cursor-pointer transition-colors"
+              title="查看所有已生成的往期简报"
             >
-              往期 ({historyDates.length})
+              往期归档 ({historyDates.length})
             </button>
           )}
         </div>
@@ -339,20 +498,93 @@ export default function DigestReader() {
             <div className="text-xs">正在整理排版晨报内容...</div>
           </div>
         ) : !currentDigest ? (
-          <div className="py-20 text-center bg-white rounded-2xl border border-dashed border-[#eae6df] px-6">
-            <h3 className="font-serif-title text-lg font-bold text-stone-800 mb-1">
-              {selectedChannel?.name} 该日期暂无简报
-            </h3>
-            <p className="text-stone-500 text-xs max-w-sm mx-auto mb-5">
-              点击下方按钮，系统将立即连接各源站抓取最新文章并生成今日提炼晨报。
-            </p>
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 transition-colors cursor-pointer"
-            >
-              {generating ? "生成中..." : "立即抓取并生成"}
-            </button>
+          <div className="space-y-6">
+            <div className="py-16 sm:py-20 text-center bg-white rounded-2xl border border-dashed border-[#eae6df] px-6">
+              <h3 className="font-serif-title text-lg sm:text-xl font-bold text-stone-800 mb-1.5">
+                {selectedChannel?.name} · {currentDate} 暂无智能晨报
+              </h3>
+              <p className="text-stone-500 text-xs max-w-md mx-auto mb-6 leading-relaxed">
+                当前日期尚未运行 AI 提炼生成结构化晨报。您可以点击下方按钮立即联网抓取并生成，或直接浏览下方数据库已收录的原始候选报道。
+              </p>
+              <div className="flex items-center justify-center gap-2.5 flex-wrap">
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  className="px-5 py-2 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 transition-colors cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${generating ? "animate-spin" : ""}`} />
+                  <span>{generating ? "大模型提炼晨报中..." : `立即抓取并生成 (${currentDate})`}</span>
+                </button>
+                {historyDates.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const latest = historyDates[0];
+                      if (latest) handleSelectDate(latest.date);
+                    }}
+                    className="px-4 py-2 rounded-lg bg-white border border-[#eae6df] text-stone-700 text-xs font-medium hover:bg-stone-50 transition-colors cursor-pointer"
+                  >
+                    查看已有简报 ({historyDates[0]?.date})
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 数据库已收录的原始候选文章列表：直接呈现供用户查阅 */}
+            {channelArticles.length > 0 && (
+              <div className="bg-white rounded-2xl border border-[#eae6df] p-5 sm:p-7 space-y-4">
+                <div className="flex items-center justify-between border-b border-[#eae6df] pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-serif-title text-sm sm:text-base font-bold text-stone-900">
+                      数据库收录候选报道
+                    </span>
+                    <span className="text-[11px] font-mono bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full font-medium">
+                      最新 {channelArticles.length} 篇
+                    </span>
+                  </div>
+                  <span className="text-xs text-stone-400">点击可在应用内阅读</span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2.5">
+                  {channelArticles.map((article) => (
+                    <div
+                      key={article.id}
+                      onClick={() =>
+                        setActiveArticle({
+                          url: article.link,
+                          title: article.title,
+                          sourceName: article.feedSource?.title,
+                        })
+                      }
+                      className="p-3.5 rounded-xl border border-[#eae6df]/80 hover:border-amber-700/40 hover:bg-amber-50/20 bg-stone-50/40 transition-all cursor-pointer group flex items-start justify-between gap-3"
+                    >
+                      <div className="space-y-1.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                          <span className="bg-stone-200/80 text-stone-700 px-1.5 py-0.5 rounded font-medium">
+                            {article.feedSource?.title || "来源站"}
+                          </span>
+                          <span className="text-stone-400 font-mono">
+                            {new Date(article.publishedAt).toLocaleString("zh-CN", {
+                              month: "numeric",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <h4 className="text-xs sm:text-sm font-medium text-stone-900 group-hover:text-amber-900 transition-colors leading-snug">
+                          {article.title}
+                        </h4>
+                        {article.summarySnippet && (
+                          <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed">
+                            {article.summarySnippet}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="bg-white rounded-xl sm:rounded-2xl border border-[#eae6df] shadow-xs p-4 sm:p-8 lg:p-10 space-y-6 sm:space-y-8">
@@ -451,14 +683,20 @@ export default function DigestReader() {
         )}
       </main>
 
-      {/* 4. 往期历史归档弹窗（按需查看，不占用横向版面） */}
+      {/* 4. 往期历史归档与日期选择弹窗 */}
       {showHistoryModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-[#eae6df] max-w-md w-full p-6 shadow-xl max-h-[80vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowHistoryModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl border border-[#eae6df] max-w-md w-full p-6 shadow-xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-3 border-b border-[#eae6df] mb-4">
               <div className="flex items-center gap-2 text-sm font-bold text-stone-900">
                 <Calendar className="w-4 h-4 text-amber-800" />
-                <span>{selectedChannel?.name} · 往期晨报历史</span>
+                <span>{selectedChannel?.name} · 日期选择与往期归档</span>
               </div>
               <button
                 onClick={() => setShowHistoryModal(false)}
@@ -468,31 +706,92 @@ export default function DigestReader() {
               </button>
             </div>
 
-            <div className="overflow-y-auto space-y-1 pr-1 flex-1">
-              {historyDates.map((item) => {
-                const isCurrent =
-                  (currentDigest?.date || selectedDate) === item.date;
-                return (
-                  <button
-                    key={item.date}
-                    onClick={() => {
-                      setSelectedDate(item.date);
-                      setShowHistoryModal(false);
-                    }}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg text-xs transition-colors flex items-center justify-between group cursor-pointer ${
-                      isCurrent
-                        ? "bg-stone-900 text-white font-medium"
-                        : "hover:bg-stone-100 text-stone-700"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 truncate">
-                      <span className="font-mono">{item.date}</span>
-                      <span className="truncate opacity-80">{item.title}</span>
-                    </div>
-                    <ChevronRight className="w-3.5 h-3.5 opacity-60 group-hover:translate-x-0.5 transition-transform shrink-0" />
-                  </button>
-                );
-              })}
+            {/* 日历直达与快捷跳转 */}
+            <div className="mb-4 pb-4 border-b border-[#eae6df]/70 space-y-2">
+              <div className="text-xs font-medium text-stone-600 flex items-center justify-between">
+                <span>直达指定日期</span>
+                <span className="text-[11px] text-stone-400">选择任意历史日期查看</span>
+              </div>
+              <input
+                type="date"
+                max={todayStr}
+                value={currentDate}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleSelectDate(e.target.value);
+                    setShowHistoryModal(false);
+                  }
+                }}
+                className="w-full px-3 py-1.5 text-xs bg-stone-50 border border-[#eae6df] rounded-lg font-mono text-stone-800 focus:outline-none focus:border-stone-900 cursor-pointer"
+              />
+              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                <button
+                  onClick={() => {
+                    handleSelectDate(todayStr);
+                    setShowHistoryModal(false);
+                  }}
+                  className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[11px] font-mono cursor-pointer transition-colors"
+                >
+                  今日 ({todayStr})
+                </button>
+                <button
+                  onClick={() => {
+                    handleSelectDate(shiftDateString(todayStr, -1));
+                    setShowHistoryModal(false);
+                  }}
+                  className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[11px] font-mono cursor-pointer transition-colors"
+                >
+                  昨日 ({shiftDateString(todayStr, -1)})
+                </button>
+                <button
+                  onClick={() => {
+                    handleSelectDate(shiftDateString(todayStr, -2));
+                    setShowHistoryModal(false);
+                  }}
+                  className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[11px] font-mono cursor-pointer transition-colors"
+                >
+                  前日 ({shiftDateString(todayStr, -2)})
+                </button>
+              </div>
+            </div>
+
+            {/* 已生成简报的历史列表 */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-stone-800">
+                已生成晨报历史 ({historyDates.length})
+              </span>
+            </div>
+
+            <div className="overflow-y-auto space-y-1.5 pr-1 flex-1 min-h-[120px]">
+              {historyDates.length === 0 ? (
+                <div className="text-center py-8 text-stone-400 text-xs">
+                  暂无历史生成记录，选择日期后可点击生成
+                </div>
+              ) : (
+                historyDates.map((item) => {
+                  const isCurrent = currentDate === item.date;
+                  return (
+                    <button
+                      key={item.date}
+                      onClick={() => {
+                        handleSelectDate(item.date);
+                        setShowHistoryModal(false);
+                      }}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg text-xs transition-colors flex items-center justify-between group cursor-pointer ${
+                        isCurrent
+                          ? "bg-stone-900 text-white font-medium shadow-2xs"
+                          : "hover:bg-stone-100 text-stone-700 border border-transparent hover:border-[#eae6df]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate pr-2">
+                        <span className="font-mono shrink-0">{item.date}</span>
+                        <span className="truncate opacity-80">{item.title}</span>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 opacity-60 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
