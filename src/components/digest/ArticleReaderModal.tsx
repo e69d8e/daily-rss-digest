@@ -5,17 +5,20 @@ import {
   X,
   ExternalLink,
   Volume2,
-  VolumeX,
   Play,
   Pause,
   Square,
   Clock,
   User,
   BookOpen,
-  CheckCircle2,
+  Copy,
+  Check,
   AlertTriangle,
   Loader2,
+  Type,
 } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
+import { isTopModal, popModal, pushModal } from "@/lib/modalStack";
 
 interface ArticleReaderModalProps {
   url: string | null;
@@ -42,10 +45,17 @@ export default function ArticleReaderModal({
   initialSourceName,
   onClose,
 }: ArticleReaderModalProps) {
+  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<"sm" | "base" | "lg">("base");
+  const [fontSerif, setFontSerif] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  // 滚动容器与阅读进度
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [readingProgress, setReadingProgress] = useState(0);
 
   // TTS 状态
   const [isPlayingTts, setIsPlayingTts] = useState(false);
@@ -53,17 +63,19 @@ export default function ArticleReaderModal({
   const [ttsRate, setTtsRate] = useState(1.0);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
 
-  // 1. 请求文章正文详情
+  // 1. 请求文章正文详情（active 守卫防止过期响应覆盖新文章）
   useEffect(() => {
     if (!url) {
       setArticle(null);
       return;
     }
 
+    let active = true;
     setLoading(true);
     setError(null);
     setIsPlayingTts(false);
     setIsPausedTts(false);
+    setReadingProgress(0);
 
     const encoded = encodeURIComponent(url);
     fetch(`/api/articles/detail?url=${encoded}`)
@@ -75,28 +87,72 @@ export default function ArticleReaderModal({
         return res.json();
       })
       .then((data: ArticleDetail) => {
+        if (!active) return;
         setArticle(data);
         setLoading(false);
       })
       .catch((err) => {
+        if (!active) return;
         console.error("加载文章失败:", err);
         setError(err.message || "正文加载异常");
         setLoading(false);
       });
+
+    return () => {
+      active = false;
+    };
   }, [url]);
 
-  // 2. 键盘 ESC 关闭
+  // 弹窗栈注册：本组件挂载即代表阅读器打开
+  useEffect(() => {
+    pushModal("article-reader");
+    return () => popModal("article-reader");
+  }, []);
+
+  // 2. 键盘事件监听 (Esc 关闭, J / K 滚屏) —— 仅在自身为栈顶弹窗时生效
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isTopModal("article-reader")) return;
       if (e.key === "Escape") {
         onClose();
+      } else if (e.key === "j" || e.key === "J") {
+        scrollContainerRef.current?.scrollBy({ top: 120, behavior: "smooth" });
+      } else if (e.key === "k" || e.key === "K") {
+        scrollContainerRef.current?.scrollBy({ top: -120, behavior: "smooth" });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  // 3. 将正文拆分为段落
+  // 3. 监听滚动进度（rAF 节流，避免长文滚动时每像素触发全弹窗重渲染）
+  const scrollRafRef = useRef<number | null>(null);
+  const handleScroll = () => {
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      const total = el.scrollHeight - el.clientHeight;
+      if (total <= 0) {
+        setReadingProgress(100);
+        return;
+      }
+      const current = (el.scrollTop / total) * 100;
+      setReadingProgress(Math.min(100, Math.max(0, current)));
+    });
+  };
+
+  // 卸载时取消未执行的 rAF 回调
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    };
+  }, []);
+
+  // 4. 将正文拆分为段落
   const paragraphs = useMemo(() => {
     if (!article?.content) return [];
     return article.content
@@ -105,7 +161,7 @@ export default function ArticleReaderModal({
       .filter((p) => p.length > 0);
   }, [article?.content]);
 
-  // 4. 将正文分句供 TTS 朗读
+  // 5. 将正文分句供 TTS 朗读
   const sentences = useMemo(() => {
     if (!article?.content) return [];
     return article.content
@@ -115,7 +171,7 @@ export default function ArticleReaderModal({
       .filter((s) => s.length > 0);
   }, [article?.content]);
 
-  // TTS 播报引擎控制器
+  // TTS 控制
   const isPlayingRef = useRef(false);
   const isPausedRef = useRef(false);
   const currentIndexRef = useRef(0);
@@ -180,11 +236,9 @@ export default function ArticleReaderModal({
               v.lang.toLowerCase().includes("zh-cn")
           ) || voices.find((v) => v.lang.startsWith("zh"));
 
-        if (zhVoice) {
-          utterance.voice = zhVoice;
-        }
+        if (zhVoice) utterance.voice = zhVoice;
       } catch {
-        // ignore voice selection error
+        // ignore
       }
 
       utterance.onend = () => {
@@ -218,7 +272,7 @@ export default function ArticleReaderModal({
       !window.speechSynthesis ||
       typeof window.SpeechSynthesisUtterance === "undefined"
     ) {
-      alert("当前浏览器暂不支持语音朗读");
+      toast.error("当前浏览器环境未检测到语音朗读引擎");
       return;
     }
     if (sentences.length === 0) return;
@@ -281,6 +335,27 @@ export default function ArticleReaderModal({
     currentIndexRef.current = 0;
   };
 
+  const handleCopyLink = async () => {
+    if (!url) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopiedLink(true);
+      toast.success("已复制源网页链接");
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      toast.error("复制失败");
+    }
+  };
+
   if (!url) return null;
 
   const displayTitle = article?.title || initialTitle || "文章详情";
@@ -292,8 +367,10 @@ export default function ArticleReaderModal({
     fontSize === "sm"
       ? "text-sm leading-relaxed"
       : fontSize === "lg"
-      ? "text-lg leading-[1.9]"
+      ? "text-lg leading-[1.95]"
       : "text-[15px] sm:text-base leading-[1.85]";
+
+  const fontFamilyClass = fontSerif ? "font-serif text-stone-900" : "font-sans text-stone-800";
 
   return (
     <div
@@ -305,9 +382,17 @@ export default function ArticleReaderModal({
         }
       }}
     >
-      <div className="bg-[#fcfbf9] w-full h-full sm:h-auto max-w-4xl lg:max-w-5xl sm:max-h-[92vh] rounded-none sm:rounded-2xl border-0 sm:border border-[#eae6df] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+      <div className="bg-[#fcfbf9] w-full h-full sm:h-auto max-w-4xl lg:max-w-5xl sm:max-h-[92vh] rounded-none sm:rounded-2xl border-0 sm:border border-[#eae6df] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 relative">
+        {/* 顶部阅读进度指示线 */}
+        <div className="w-full bg-stone-200/60 h-1 absolute top-0 left-0 z-20 overflow-hidden">
+          <div
+            className="bg-amber-800 h-full transition-all duration-150"
+            style={{ width: `${readingProgress}%` }}
+          />
+        </div>
+
         {/* 顶部控制与标题栏 */}
-        <div className="border-b border-[#eae6df] px-4 sm:px-6 py-3 sm:py-4 bg-white flex items-center justify-between gap-2 sm:gap-4 shrink-0">
+        <div className="border-b border-[#eae6df] px-4 sm:px-6 py-3 sm:py-3.5 bg-white flex items-center justify-between gap-2 sm:gap-4 shrink-0 mt-1">
           <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-stone-500 font-mono truncate">
             <span className="bg-stone-100 text-stone-700 px-2 py-0.5 rounded font-sans font-medium shrink-0">
               {displaySource}
@@ -325,7 +410,21 @@ export default function ArticleReaderModal({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* 字体样式切换 (衬线 / 黑体) */}
+            <button
+              onClick={() => setFontSerif(!fontSerif)}
+              className={`p-1.5 rounded-lg border border-[#eae6df] text-xs transition-colors cursor-pointer hidden sm:flex items-center gap-1 ${
+                fontSerif
+                  ? "bg-amber-50 text-amber-900 border-amber-300 font-serif font-bold"
+                  : "bg-white text-stone-600 hover:bg-stone-50"
+              }`}
+              title={fontSerif ? "切换为现代黑体" : "切换为典雅衬线体"}
+            >
+              <Type className="w-3.5 h-3.5" />
+              <span>{fontSerif ? "衬线" : "黑体"}</span>
+            </button>
+
             {/* 字号调节 */}
             <div className="hidden sm:flex items-center border border-[#eae6df] rounded-lg p-0.5 text-xs text-stone-600 bg-stone-50">
               <button
@@ -342,7 +441,7 @@ export default function ArticleReaderModal({
                 className={`px-2 py-0.5 rounded cursor-pointer ${
                   fontSize === "base" ? "bg-white font-bold shadow-xs text-stone-900" : "hover:text-stone-900"
                 }`}
-                title="默认字号"
+                title="标准字号"
               >
                 标准
               </button>
@@ -356,6 +455,15 @@ export default function ArticleReaderModal({
                 A+
               </button>
             </div>
+
+            {/* 复制链接 */}
+            <button
+              onClick={handleCopyLink}
+              className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer border border-stone-200"
+              title="复制原文链接"
+            >
+              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
 
             {/* 打开原始网页 */}
             <a
@@ -383,20 +491,20 @@ export default function ArticleReaderModal({
           </div>
         </div>
 
-        {/* 次顶部音频播报操作条 */}
+        {/* 次顶部音频伴读条 */}
         {article?.content && (
           <div className="bg-amber-50/70 border-b border-amber-200/50 px-4 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-3 text-xs text-amber-900 shrink-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <Volume2 className="w-4 h-4 text-amber-700 shrink-0" />
-              <span className="font-medium">正文语音伴读</span>
+              <span className="font-semibold">正文语音伴读</span>
               {isPlayingTts && (
-                <span className="text-[11px] text-amber-700/80 font-mono">
+                <span className="text-[11px] text-amber-700/80 font-mono truncate">
                   [{currentSentenceIndex + 1}/{sentences.length}]
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {!isPlayingTts || isPausedTts ? (
                 <button
                   onClick={handlePlayTts}
@@ -439,11 +547,15 @@ export default function ArticleReaderModal({
         )}
 
         {/* 内容滚动作业区 */}
-        <div className="overflow-y-auto px-4 sm:px-10 lg:px-12 py-5 sm:py-8 space-y-5 sm:space-y-6 flex-1 bg-white">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="overflow-y-auto px-4 sm:px-10 lg:px-12 py-5 sm:py-8 space-y-5 sm:space-y-6 flex-1 bg-white"
+        >
           {loading ? (
-            <div className="py-20 flex flex-col items-center justify-center gap-3 text-stone-400">
-              <Loader2 className="w-6 h-6 animate-spin text-amber-700" />
-              <p className="text-xs font-serif">正在提取并解析文章详情...</p>
+            <div className="py-24 flex flex-col items-center justify-center gap-3 text-stone-400">
+              <Loader2 className="w-7 h-7 animate-spin text-amber-700" />
+              <p className="text-xs font-serif text-stone-500">正在提炼排版文章详情...</p>
             </div>
           ) : error ? (
             <div className="py-16 text-center space-y-3">
@@ -482,13 +594,16 @@ export default function ArticleReaderModal({
                     </span>
                   )}
                   <span className="bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded text-[11px]">
-                    {article?.isFullText ? "全文提取就绪" : "摘要模式"}
+                    {article?.isFullText ? "全文提取就绪" : "摘要预览模式"}
+                  </span>
+                  <span className="text-stone-300 font-sans hidden sm:inline">
+                    · 按 J / K 可上下翻动
                   </span>
                 </div>
               </div>
 
               {/* 正文段落区 */}
-              <div className={`text-stone-800 font-sans space-y-4 text-justify ${fontSizeClass}`}>
+              <div className={`space-y-4 text-justify ${fontFamilyClass} ${fontSizeClass}`}>
                 {paragraphs.map((para, idx) => (
                   <p key={idx} className="leading-relaxed">
                     {para}
@@ -496,15 +611,15 @@ export default function ArticleReaderModal({
                 ))}
               </div>
 
-              {/* 若非完全全文，显示温馨提示并提供直通链接 */}
+              {/* 若非完全全文，显示提示与直达按钮 */}
               {!article?.isFullText && (
-                <div className="bg-amber-50/60 border border-amber-200/80 rounded-xl p-4 text-xs text-amber-900 space-y-2">
-                  <div className="font-medium flex items-center gap-1.5">
+                <div className="bg-amber-50/60 border border-amber-200/80 rounded-xl p-4 text-xs text-amber-900 space-y-2 mt-6">
+                  <div className="font-semibold flex items-center gap-1.5">
                     <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-                    <span>提示：当前源站仅提供摘要预览或受页面反爬限制</span>
+                    <span>提示：当前源站仅提供摘要预览或正文受防爬虫机制保护</span>
                   </div>
                   <p className="text-stone-600 leading-relaxed">
-                    如需查看图文排版、完整代码或评论，可直接点击下方按钮直达源网站。
+                    如需查看原始图片、完整代码块或读者互动评论，可直接点击下方按钮直达源网站。
                   </p>
                   <a
                     href={url}
@@ -512,7 +627,7 @@ export default function ArticleReaderModal({
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 font-semibold text-amber-800 hover:text-amber-950 hover:underline pt-1"
                   >
-                    在源站阅读完整正文 <ExternalLink className="w-3 h-3" />
+                    在源站阅读完整图文正文 <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
               )}

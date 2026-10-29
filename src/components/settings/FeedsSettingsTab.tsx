@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Rss,
   Plus,
@@ -13,8 +13,12 @@ import {
   RefreshCw,
   Layers,
   Sparkles,
+  Search,
+  Filter,
+  X,
 } from "lucide-react";
 import { useConfirm } from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 
 interface FeedItem {
   id: string;
@@ -37,9 +41,14 @@ interface ChannelItem {
 
 export default function FeedsSettingsTab() {
   const confirm = useConfirm();
+  const { toast } = useToast();
   const [feeds, setFeeds] = useState<FeedItem[]>([]);
   const [channels, setChannels] = useState<ChannelItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 搜索与过滤
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterChannelId, setFilterChannelId] = useState("");
 
   // Add Feed Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -79,6 +88,7 @@ export default function FeedsSettingsTab() {
       }
     } catch (e) {
       console.error(e);
+      toast.error("加载订阅源数据失败");
     } finally {
       setLoading(false);
     }
@@ -87,6 +97,18 @@ export default function FeedsSettingsTab() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const filteredFeeds = useMemo(() => {
+    return feeds.filter((feed) => {
+      const matchSearch =
+        !searchQuery.trim() ||
+        feed.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        feed.url?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchChannel =
+        !filterChannelId || feed.channelId === filterChannelId;
+      return matchSearch && matchChannel;
+    });
+  }, [feeds, searchQuery, filterChannelId]);
 
   const handlePreview = async () => {
     if (!newUrl.trim()) return;
@@ -109,8 +131,10 @@ export default function FeedsSettingsTab() {
 
       setPreviewResult(data);
       if (!newTitle) setNewTitle(data.title);
+      toast.success(`探测成功：解析到 ${data.title}`);
     } catch (e: any) {
       setAddError(e.message);
+      toast.error(`探测失败: ${e.message}`);
     } finally {
       setPreviewing(false);
     }
@@ -136,6 +160,7 @@ export default function FeedsSettingsTab() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "添加失败");
 
+      toast.success(`已成功添加订阅源: ${newTitle || newUrl}`);
       setShowAddModal(false);
       setNewUrl("");
       setNewTitle("");
@@ -143,6 +168,7 @@ export default function FeedsSettingsTab() {
       loadData();
     } catch (e: any) {
       setAddError(e.message);
+      toast.error(`添加失败: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -160,10 +186,16 @@ export default function FeedsSettingsTab() {
     if (!ok) return;
 
     try {
-      await fetch(`/api/feeds?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/feeds?id=${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `请求失败 (${res.status})`);
+      }
+      toast.success("已删除订阅源");
       loadData();
     } catch (e) {
       console.error(e);
+      toast.error(e instanceof Error ? e.message : "删除失败");
     }
   };
 
@@ -187,9 +219,11 @@ export default function FeedsSettingsTab() {
       if (!res.ok) throw new Error(data.error || "导入失败");
 
       setImportStatus(data);
+      toast.success(`OPML 导入成功！共导入 ${data.importedCount} 个订阅源`);
       loadData();
     } catch (e: any) {
       setImportStatus({ error: e.message });
+      toast.error(`OPML 导入失败: ${e.message}`);
     } finally {
       setImporting(false);
     }
@@ -201,8 +235,9 @@ export default function FeedsSettingsTab() {
       const res = await fetch("/api/feeds/refresh", { method: "POST" });
       if (!res.ok) throw new Error("刷新失败");
       await loadData();
+      toast.success("全部订阅源已刷新抓取完成！");
     } catch (e: any) {
-      alert(`刷新失败: ${e.message}`);
+      toast.error(`刷新失败: ${e.message}`);
     } finally {
       setRefreshingAll(false);
     }
@@ -217,7 +252,7 @@ export default function FeedsSettingsTab() {
             RSS 订阅源列表与管理
           </h3>
           <p className="text-xs text-stone-500 mt-0.5">
-            管理所有抓取源，支持连通探测、开启正文抓取及 OPML 批量导入导出。
+            共收录 {feeds.length} 个抓取源，支持连通探测、正文抽取及 OPML 批量导入导出。
           </p>
         </div>
 
@@ -225,12 +260,12 @@ export default function FeedsSettingsTab() {
           <button
             onClick={handleRefreshAll}
             disabled={refreshingAll}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#eae6df] bg-white text-xs font-semibold text-stone-700 hover:bg-stone-50 transition-colors shadow-2xs disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#eae6df] bg-white text-xs font-semibold text-stone-700 hover:bg-stone-50 transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
             title="手动触发拉取所有源的最新文章并更新计数"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 text-stone-600 ${
-                refreshingAll ? "animate-spin" : ""
+                refreshingAll ? "animate-spin text-amber-700" : ""
               }`}
             />
             <span>{refreshingAll ? "正在拉取..." : "刷新全部源"}</span>
@@ -246,7 +281,7 @@ export default function FeedsSettingsTab() {
 
           <button
             onClick={() => setShowOpmlModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#eae6df] bg-white text-xs font-semibold text-stone-700 hover:bg-stone-50 transition-colors shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#eae6df] bg-white text-xs font-semibold text-stone-700 hover:bg-stone-50 transition-colors shadow-2xs cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5 text-amber-700" />
             <span>导入 OPML</span>
@@ -258,11 +293,53 @@ export default function FeedsSettingsTab() {
               setPreviewResult(null);
               setAddError("");
             }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 transition-colors shadow-xs"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 transition-colors shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>添加订阅源</span>
           </button>
+        </div>
+      </div>
+
+      {/* 快捷搜索与分类过滤条 */}
+      <div className="flex flex-col sm:flex-row items-center gap-2.5">
+        <div className="relative flex-1 w-full">
+          <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-3" />
+          <input
+            type="text"
+            placeholder="搜索源站名称、链接或关键词..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-8 py-2 bg-white rounded-xl border border-stone-200 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:border-stone-900 shadow-2xs"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-2.5 p-0.5 text-stone-400 hover:text-stone-700 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* 频道筛选下拉框 */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Filter className="w-3.5 h-3.5 text-stone-400 shrink-0 hidden sm:inline" />
+          <select
+            value={filterChannelId}
+            onChange={(e) => setFilterChannelId(e.target.value)}
+            className="w-full sm:w-44 px-3 py-2 bg-white rounded-xl border border-stone-200 text-xs text-stone-700 focus:outline-none focus:border-stone-900 shadow-2xs cursor-pointer"
+          >
+            <option value="">全部频道 ({feeds.length})</option>
+            {channels.map((ch) => {
+              const count = feeds.filter((f) => f.channelId === ch.id).length;
+              return (
+                <option key={ch.id} value={ch.id}>
+                  {ch.name} ({count})
+                </option>
+              );
+            })}
+          </select>
         </div>
       </div>
 
@@ -272,18 +349,31 @@ export default function FeedsSettingsTab() {
           <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-stone-400" />
           <div className="text-xs">加载订阅源列表中...</div>
         </div>
-      ) : feeds.length === 0 ? (
+      ) : filteredFeeds.length === 0 ? (
         <div className="p-12 text-center bg-white rounded-xl border border-dashed border-[#eae6df]">
           <Rss className="w-8 h-8 text-stone-300 mx-auto mb-2" />
           <h4 className="text-sm font-bold text-stone-800 mb-1">
-            暂无 RSS 订阅源
+            {searchQuery || filterChannelId ? "未检索到匹配的订阅源" : "暂无 RSS 订阅源"}
           </h4>
           <p className="text-stone-500 text-xs mb-4">
-            点击上方按钮添加新源，或导入您在其他阅读器中备份的 OPML 文件。
+            {searchQuery || filterChannelId
+              ? "您可以尝试清除过滤条件或添加新的 RSS 抓取源。"
+              : "点击上方按钮添加新源，或导入您在其他阅读器中备份的 OPML 文件。"}
           </p>
+          {(searchQuery || filterChannelId) && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setFilterChannelId("");
+              }}
+              className="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 text-xs font-medium cursor-pointer mr-2"
+            >
+              清除筛选条件
+            </button>
+          )}
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-3 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-medium"
+            className="px-3.5 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-medium cursor-pointer"
           >
             立即添加订阅源
           </button>
@@ -291,12 +381,12 @@ export default function FeedsSettingsTab() {
       ) : (
         <div className="bg-white rounded-xl border border-[#eae6df] shadow-xs overflow-hidden">
           <div className="divide-y divide-[#eae6df]">
-            {feeds.map((feed) => (
+            {filteredFeeds.map((feed) => (
               <div
                 key={feed.id}
                 className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#faf9f6] transition-colors"
               >
-                <div className="space-y-1 flex-1 min-w-0">
+                <div className="space-y-1.5 flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-stone-900 text-sm">
                       {feed.title}
@@ -314,14 +404,14 @@ export default function FeedsSettingsTab() {
                       </span>
                     )}
                     {feed.status === "ACTIVE" ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">
+                      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60">
                         <CheckCircle2 className="w-3 h-3" />
                         正常
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-rose-600">
+                      <span className="inline-flex items-center gap-1 text-[11px] text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200/60">
                         <AlertCircle className="w-3 h-3" />
-                        异常: {feed.lastError}
+                        <span>抓取异常{feed.lastError ? `: ${feed.lastError}` : ""}</span>
                       </span>
                     )}
                   </div>
@@ -356,7 +446,7 @@ export default function FeedsSettingsTab() {
                   )}
                   <button
                     onClick={() => handleDelete(feed.id, feed.title || feed.url)}
-                    className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                    className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                     title="删除此源"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -370,8 +460,8 @@ export default function FeedsSettingsTab() {
 
       {/* 添加源弹窗 */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-[#eae6df] max-w-lg w-full p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-[#eae6df] max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150">
             <h3 className="font-serif-title text-lg font-bold text-stone-900 mb-4">
               添加 RSS / Atom 订阅源
             </h3>
@@ -392,7 +482,7 @@ export default function FeedsSettingsTab() {
                   <button
                     onClick={handlePreview}
                     disabled={previewing || !newUrl}
-                    className="px-3 py-2 rounded-lg bg-stone-100 text-stone-700 hover:bg-stone-200 text-xs font-medium disabled:opacity-50"
+                    className="px-3 py-2 rounded-lg bg-stone-100 text-stone-700 hover:bg-stone-200 text-xs font-medium disabled:opacity-50 cursor-pointer"
                   >
                     {previewing ? "探测中..." : "探测测试"}
                   </button>
@@ -406,7 +496,7 @@ export default function FeedsSettingsTab() {
                 <select
                   value={targetChannelId}
                   onChange={(e) => setTargetChannelId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-stone-900 bg-white"
+                  className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-stone-900 bg-white cursor-pointer"
                 >
                   {channels.map((ch) => (
                     <option key={ch.id} value={ch.id}>
@@ -437,20 +527,20 @@ export default function FeedsSettingsTab() {
                   onChange={(e) => setIsFullText(e.target.checked)}
                   className="rounded border-stone-300 text-stone-900 focus:ring-stone-900"
                 />
-                <label htmlFor="fulltext" className="text-xs text-stone-700">
+                <label htmlFor="fulltext" className="text-xs text-stone-700 cursor-pointer">
                   开启正文深度抓取（适用于仅提供截断摘要的源）
                 </label>
               </div>
 
               {previewResult && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs space-y-1.5">
-                  <div className="font-semibold text-emerald-800 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-2">
+                  <div className="font-semibold text-emerald-800 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     <span>探测成功：{previewResult.title}</span>
                   </div>
-                  <div className="text-stone-600">最新收录样例文档：</div>
-                  <ul className="list-disc list-inside text-stone-500 space-y-0.5">
-                    {previewResult.sampleArticles?.map((a: any, i: number) => (
+                  <div className="text-stone-600 font-medium">解析到的最新报道样例：</div>
+                  <ul className="list-disc list-inside text-stone-600 space-y-1">
+                    {previewResult.sampleArticles?.slice(0, 3).map((a: any, i: number) => (
                       <li key={i} className="truncate">
                         {a.title}
                       </li>
@@ -469,14 +559,14 @@ export default function FeedsSettingsTab() {
             <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-stone-200">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100"
+                className="px-4 py-2 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 cursor-pointer"
               >
                 取消
               </button>
               <button
                 onClick={handleSaveFeed}
                 disabled={saving || !newUrl}
-                className="px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 disabled:opacity-50 cursor-pointer"
               >
                 {saving ? "保存中..." : "确认添加"}
               </button>
@@ -487,12 +577,12 @@ export default function FeedsSettingsTab() {
 
       {/* OPML 导入弹窗 */}
       {showOpmlModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-[#eae6df] max-w-lg w-full p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-[#eae6df] max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150">
             <h3 className="font-serif-title text-lg font-bold text-stone-900 mb-2">
               批量导入 OPML 订阅列表
             </h3>
-            <p className="text-xs text-stone-500 mb-4">
+            <p className="text-xs text-stone-500 mb-4 leading-relaxed">
               从 NetNewsWire、Follow、Feedly、Inoreader 等导出的 .opml 或 .xml 文件一键导入。
             </p>
 
@@ -504,7 +594,7 @@ export default function FeedsSettingsTab() {
                 <select
                   value={opmlTargetChannel}
                   onChange={(e) => setOpmlTargetChannel(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-stone-900 bg-white"
+                  className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-stone-900 bg-white cursor-pointer"
                 >
                   {channels.map((ch) => (
                     <option key={ch.id} value={ch.id}>
@@ -522,13 +612,13 @@ export default function FeedsSettingsTab() {
                   type="file"
                   accept=".opml,.xml"
                   onChange={(e) => setOpmlFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-stone-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-stone-700 hover:file:bg-stone-200"
+                  className="w-full text-xs text-stone-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-stone-700 hover:file:bg-stone-200 cursor-pointer"
                 />
               </div>
 
               {importStatus && (
                 <div
-                  className={`p-3 rounded-lg text-xs ${
+                  className={`p-3.5 rounded-xl text-xs ${
                     importStatus.error
                       ? "bg-red-50 text-red-700 border border-red-200"
                       : "bg-emerald-50 text-emerald-800 border border-emerald-200"
@@ -549,14 +639,14 @@ export default function FeedsSettingsTab() {
             <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-stone-200">
               <button
                 onClick={() => setShowOpmlModal(false)}
-                className="px-4 py-2 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100"
+                className="px-4 py-2 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 cursor-pointer"
               >
                 关闭
               </button>
               <button
                 onClick={handleImportOpml}
                 disabled={importing || !opmlFile}
-                className="px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 disabled:opacity-50 cursor-pointer"
               >
                 {importing ? "正在解析导入..." : "开始导入"}
               </button>

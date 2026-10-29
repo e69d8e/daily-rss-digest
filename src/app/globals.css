@@ -1,15 +1,64 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @layer base {
   :root {
-    --paper-bg: #fcfbf9;
+    --paper-bg: #faf8f5;
     --paper-card: #ffffff;
+    --paper-card-subtle: #fcfbf9;
     --paper-border: #eae6df;
-    --ink-primary: #18181b;
-    --ink-secondary: #52525b;
-    --ink-muted: #71717a;
+    --header-bg: rgba(250, 248, 245, 0.92);
+    --ink-primary: #1c1917;
+    --ink-secondary: #44403c;
+    --ink-muted: #78716c;
     --accent: #b45309;
     --accent-light: #fef3c7;
+    --accent-badge: rgba(180, 83, 9, 0.1);
+  }
+
+  /* 1. 经典报刊纸质色 (Paper Warm) */
+  [data-theme="paper"] {
+    --paper-bg: #faf8f5;
+    --paper-card: #ffffff;
+    --paper-card-subtle: #fcfbf9;
+    --paper-border: #eae6df;
+    --header-bg: rgba(250, 248, 245, 0.92);
+    --ink-primary: #1c1917;
+    --ink-secondary: #44403c;
+    --ink-muted: #78716c;
+    --accent: #b45309;
+    --accent-light: #fef3c7;
+    --accent-badge: rgba(180, 83, 9, 0.1);
+  }
+
+  /* 2. 晨曦极简明亮 (Clean Light) */
+  [data-theme="light"] {
+    --paper-bg: #f8fafc;
+    --paper-card: #ffffff;
+    --paper-card-subtle: #f1f5f9;
+    --paper-border: #e2e8f0;
+    --header-bg: rgba(255, 255, 255, 0.92);
+    --ink-primary: #0f172a;
+    --ink-secondary: #334155;
+    --ink-muted: #64748b;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --accent-badge: rgba(37, 99, 235, 0.1);
+  }
+
+  /* 3. 暗夜静读沉浸 (Midnight Ink) */
+  [data-theme="midnight"] {
+    --paper-bg: #111113;
+    --paper-card: #18181b;
+    --paper-card-subtle: #202024;
+    --paper-border: #2e2e33;
+    --header-bg: rgba(17, 17, 19, 0.92);
+    --ink-primary: #f4f4f5;
+    --ink-secondary: #d4d4d8;
+    --ink-muted: #a1a1aa;
+    --accent: #f59e0b;
+    --accent-light: #292524;
+    --accent-badge: rgba(245, 158, 11, 0.15);
   }
 
   body {
@@ -17,19 +66,97 @@
     color: var(--ink-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     -webkit-font-smoothing: antialiased;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 }
 
-/* 报纸感细腻网格与排印微调 */
+/* 报刊感细腻衬线标题与排印微调 */
 .font-serif-title {
-  font-family: Georgia, Cambria, "Times New Roman", "Songti SC", "SimSun", serif;
+  font-family: "Charter", "Bitstream Charter", "Sitka Text", Georgia, Cambria, "Times New Roman", "Songti SC", "SimSun", serif;
 }
 
-/* 隐藏滚动条但保留滚动 */
+/* 隐藏滚动条但保留平滑滚动 */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* 优雅排版下划线微动效 */
+.hover-underline-animation {
+  display: inline-block;
+  position: relative;
+}
+.hover-underline-animation::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  transform: scaleX(0);
+  height: 1.5px;
+  bottom: -1px;
+  left: 0;
+  background-color: currentColor;
+  transform-origin: bottom right;
+  transition: transform 0.25s ease-out;
+}
+.hover-underline-animation:hover::after {
+  transform: scaleX(1);
+  transform-origin: bottom left;
+}
+
+/* 暗色模式下卡片与边框细节全局适配 */
+[data-theme="midnight"] header {
+  background-color: rgba(17, 17, 19, 0.95) !important;
+  border-color: #27272a !important;
+}
+[data-theme="midnight"] .bg-white {
+  background-color: #18181b !important;
+}
+[data-theme="midnight"] .bg-white\/95,
+[data-theme="midnight"] .bg-white\/70 {
+  background-color: rgba(24, 24, 27, 0.95) !important;
+}
+[data-theme="midnight"] .border-\[\#eae6df\] {
+  border-color: #27272a !important;
+}
+[data-theme="midnight"] .text-stone-900,
+[data-theme="midnight"] .text-stone-950 {
+  color: #f4f4f5 !important;
+}
+[data-theme="midnight"] .text-stone-800 {
+  color: #e4e4e7 !important;
+}
+[data-theme="midnight"] .text-stone-700 {
+  color: #d4d4d8 !important;
+}
+[data-theme="midnight"] .text-stone-600 {
+  color: #a1a1aa !important;
+}
+[data-theme="midnight"] .text-stone-500 {
+  color: #71717a !important;
+}
+[data-theme="midnight"] .bg-stone-50,
+[data-theme="midnight"] .bg-\[\#faf9f6\],
+[data-theme="midnight"] .bg-\[\#fcfbf9\] {
+  background-color: #1f1f23 !important;
+}
+[data-theme="midnight"] .bg-stone-100 {
+  background-color: #27272a !important;
+}
+[data-theme="midnight"] .hover\:bg-stone-50:hover {
+  background-color: #27272a !important;
+}
+[data-theme="midnight"] .hover\:bg-stone-100:hover {
+  background-color: #27272a !important;
+}
+[data-theme="midnight"] .border-stone-200,
+[data-theme="midnight"] .border-stone-200\/60,
+[data-theme="midnight"] .border-stone-200\/50,
+[data-theme="midnight"] .border-stone-200\/40 {
+  border-color: #27272a !important;
+}
+[data-theme="midnight"] .border-stone-300 {
+  border-color: #3f3f46 !important;
 }

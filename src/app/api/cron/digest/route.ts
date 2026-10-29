@@ -4,15 +4,23 @@ import { generateDailyDigestForChannel } from "@/lib/digest/generator";
 
 export async function GET(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET || "rss_digest_secret_key_2026";
+    // 密钥必须通过环境变量配置，缺失时拒绝所有调用（不设任何兜底值）
+    const cronSecret = process.env.CRON_SECRET?.trim();
+    if (!cronSecret) {
+      return NextResponse.json(
+        { error: "服务端未配置 CRON_SECRET，已拒绝调用" },
+        { status: 401 }
+      );
+    }
 
-    // 简单密钥校验
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      const urlSecret = new URL(req.url).searchParams.get("key");
-      if (urlSecret !== cronSecret) {
-        return NextResponse.json({ error: "未授权调用" }, { status: 401 });
-      }
+    // 仅接受请求头传密钥，禁止 URL 查询参数（避免泄露到访问日志/Referer）
+    const authHeader = req.headers.get("authorization");
+    const provided = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : req.headers.get("x-cron-secret");
+
+    if (provided !== cronSecret) {
+      return NextResponse.json({ error: "未授权调用" }, { status: 401 });
     }
 
     const host = req.headers.get("host") || "localhost:3000";

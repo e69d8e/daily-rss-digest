@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
 /**
  * 检查当前系统是否启用了管理访问密码保护
@@ -45,4 +46,19 @@ export async function verifyAdminAuth(req?: Request): Promise<boolean> {
   }
 
   return false;
+}
+
+/**
+ * 路由守卫便捷方法：已授权返回 null，未授权返回 401 响应
+ * 用法：const denied = await requireAdmin(req); if (denied) return denied;
+ */
+export async function requireAdmin(req?: Request): Promise<NextResponse | null> {
+  const isAuthed = await verifyAdminAuth(req);
+  if (!isAuthed) {
+    return NextResponse.json(
+      { error: "未授权：请先在设置页输入管理员访问密码" },
+      { status: 401 }
+    );
+  }
+  return null;
 }

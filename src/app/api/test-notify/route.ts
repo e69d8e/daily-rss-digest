@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/auth";
 import {
   sendFeishuNotification,
   sendWecomNotification,
@@ -9,6 +10,9 @@ import {
 
 export async function POST(req: Request) {
   try {
+    const denied = await requireAdmin(req);
+    if (denied) return denied;
+
     const body = await req.json();
     const { type, config } = body;
 

@@ -9,6 +9,7 @@ import React, {
   useEffect,
 } from "react";
 import { Trash2, AlertTriangle, X, Info } from "lucide-react";
+import { isTopModal, popModal, pushModal } from "@/lib/modalStack";
 
 export type ConfirmVariant = "danger" | "warning" | "info";
 
@@ -62,15 +63,20 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   useEffect(() => {
     if (!isOpen) return;
+    pushModal("confirm-modal");
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isLoading) {
+      // 仅栈顶弹窗响应 Esc，避免叠层弹窗被同时关闭
+      if (e.key === "Escape" && !isLoading && isTopModal("confirm-modal")) {
         onCancel();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      popModal("confirm-modal");
+    };
   }, [isOpen, isLoading, onCancel]);
 
   if (!isOpen) return null;

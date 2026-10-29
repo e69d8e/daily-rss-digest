@@ -21,6 +21,7 @@ import FeedsSettingsTab from "@/components/settings/FeedsSettingsTab";
 import ChannelsSettingsTab from "@/components/settings/ChannelsSettingsTab";
 import AiSettingsTab from "@/components/settings/AiSettingsTab";
 import NotificationsSettingsTab from "@/components/settings/NotificationsSettingsTab";
+import { useToast } from "@/components/ui/Toast";
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -164,6 +165,8 @@ function SettingsContent() {
     setAuthStatus((prev) => ({ ...prev, authenticated: false }));
   };
 
+  const { toast } = useToast();
+
   const handleSaveSystemConfig = async () => {
     setSaving(true);
     setSaveSuccess(false);
@@ -180,10 +183,11 @@ function SettingsContent() {
         throw new Error(err.error || "保存失败");
       }
       setSaveSuccess(true);
+      toast.success("系统配置已成功保存！");
       setTimeout(() => setSaveSuccess(false), 3000);
       loadSettings();
     } catch (e: any) {
-      alert(`保存失败: ${e.message}`);
+      toast.error(`保存失败: ${e.message}`);
     } finally {
       setSaving(false);
     }

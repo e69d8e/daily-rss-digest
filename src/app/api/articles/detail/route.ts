@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { isSafePublicUrl } from "@/lib/urlGuard";
 import { fetchArticleFullText } from "@/lib/rss/parser";
 
 export async function GET(req: Request) {
@@ -45,6 +46,13 @@ export async function GET(req: Request) {
 
     // 2. 如果数据库未缓存有效全文，且目标 URL 存在，则尝试实时深度抓取并回写缓存
     if ((!content || content.length <= 120) && targetUrl) {
+      // SSRF 防护：拒绝私网/环回/元数据等非公网地址
+      if (!(await isSafePublicUrl(targetUrl))) {
+        return NextResponse.json(
+          { error: "目标地址不安全，已拒绝抓取" },
+          { status: 403 }
+        );
+      }
       try {
         const fetchedText = await fetchArticleFullText(targetUrl);
         if (fetchedText && fetchedText.length > 100) {

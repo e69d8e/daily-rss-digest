@@ -1,6 +1,25 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaLibSQL } from "@prisma/adapter-libsql";
 
-const prisma = new PrismaClient();
+// 与 src/lib/db.ts 保持一致的连接策略：
+// 配置了 TURSO_DATABASE_URL 时写入 Turso 云端库，否则回退本地 SQLite 文件。
+// 此前 seed 使用裸 PrismaClient 且只认 DATABASE_URL，
+// 导致按 README 执行 `TURSO_DATABASE_URL=... npm run db:seed` 时数据全部落到本地 dev.db。
+const tursoUrl = process.env.TURSO_DATABASE_URL;
+const tursoAuthToken = process.env.TURSO_AUTH_TOKEN;
+
+function createPrisma(): PrismaClient {
+  if (tursoUrl && (tursoUrl.startsWith("libsql://") || tursoUrl.startsWith("https://"))) {
+    const adapter = new PrismaLibSQL({
+      url: tursoUrl,
+      authToken: tursoAuthToken,
+    });
+    return new PrismaClient({ adapter });
+  }
+  return new PrismaClient();
+}
+
+const prisma = createPrisma();
 
 async function main() {
   console.log("🌱 开始初始化 Daily RSS Digest 基础数据...");

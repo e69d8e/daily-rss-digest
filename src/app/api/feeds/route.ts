@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
 import { fetchAndParseFeed } from "@/lib/rss/parser";
 
 export async function GET(req: Request) {
@@ -28,6 +29,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const denied = await requireAdmin(req);
+    if (denied) return denied;
+
     const body = await req.json();
     const { channelId, url, title, isFullTextFetch, previewOnly } = body;
 
@@ -103,6 +107,9 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   try {
+    const denied = await requireAdmin(req);
+    if (denied) return denied;
+
     const body = await req.json();
     const { id, channelId, title, url, isFullTextFetch, status } = body;
 
@@ -130,6 +137,9 @@ export async function PUT(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const denied = await requireAdmin(req);
+    if (denied) return denied;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 

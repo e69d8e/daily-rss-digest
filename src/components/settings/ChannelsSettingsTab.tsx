@@ -1,24 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Layers,
   Plus,
-  Clock,
   Trash2,
   Edit2,
   Sparkles,
-  Filter,
   RefreshCw,
   Rss,
-  Check,
-  Link2,
-  ExternalLink,
   AlertCircle,
   X,
-  Radio,
+  Search,
+  Wand2,
 } from "lucide-react";
 import { useConfirm } from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 
 interface FeedSourceSummary {
   id: string;
@@ -45,8 +42,28 @@ interface ChannelData {
   _count?: { sources: number; digests: number };
 }
 
+const PROMPT_PRESETS = [
+  {
+    name: "前沿科技与 AI",
+    text: "重点聚焦大模型架构突破、商业化落地与开源生态，提炼工程创新与代码实践，过滤公关营销软文。",
+  },
+  {
+    name: "深度商业研报",
+    text: "提炼核心商业数据、估值变化、行业并购与宏观经济走势，注重事实与数字严谨性，条理清晰、层次分明。",
+  },
+  {
+    name: "独立创造与产品",
+    text: "关注独立创造者故事、新奇数字化工具、交互设计创新与商业闭环，文字通俗有温度，突出产品亮点。",
+  },
+  {
+    name: "极简速读晨报",
+    text: "采用结论先行、三句话看懂事实核心的精炼文风，去除冗长铺垫，适合 3 分钟极速晨读。",
+  },
+];
+
 export default function ChannelsSettingsTab() {
   const confirm = useConfirm();
+  const { toast } = useToast();
   const [channels, setChannels] = useState<ChannelData[]>([]);
   const [allFeeds, setAllFeeds] = useState<FeedSourceSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +80,7 @@ export default function ChannelsSettingsTab() {
   const [includeKeywords, setIncludeKeywords] = useState("");
   const [excludeKeywords, setExcludeKeywords] = useState("");
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [feedFilterQuery, setFeedFilterQuery] = useState("");
 
   // Quick Add Feed inside Modal
   const [quickFeedUrl, setQuickFeedUrl] = useState("");
@@ -87,6 +105,7 @@ export default function ChannelsSettingsTab() {
       setAllFeeds(Array.isArray(feedData) ? feedData : []);
     } catch (e) {
       console.error(e);
+      toast.error("加载频道数据失败");
     } finally {
       setLoading(false);
     }
@@ -107,6 +126,7 @@ export default function ChannelsSettingsTab() {
     setIncludeKeywords("");
     setExcludeKeywords("");
     setSelectedSourceIds([]);
+    setFeedFilterQuery("");
     setQuickFeedUrl("");
     setQuickFeedTitle("");
     setQuickFeedError("");
@@ -126,6 +146,7 @@ export default function ChannelsSettingsTab() {
 
     const sourceIds = (ch.sources || []).map((s) => s.id);
     setSelectedSourceIds(sourceIds);
+    setFeedFilterQuery("");
 
     let inc = "";
     let exc = "";
@@ -148,7 +169,6 @@ export default function ChannelsSettingsTab() {
     setShowModal(true);
   };
 
-  // 快速新增订阅源并挂载至当前编辑频道
   const handleQuickAddFeed = async () => {
     if (!quickFeedUrl.trim()) {
       setQuickFeedError("请输入有效的 RSS 订阅地址");
@@ -169,46 +189,47 @@ export default function ChannelsSettingsTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channelId: editingId,
           url: quickFeedUrl.trim(),
-          title: quickFeedTitle.trim() || undefined,
+          title: quickFeedTitle.trim(),
+          channelId: editingId,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "添加订阅源失败");
-      }
+      if (!res.ok) throw new Error(data.error || "添加失败");
 
-      setQuickFeedSuccess(`成功添加并关联源：「${data.title}」`);
+      setQuickFeedSuccess(`成功添加源「${data.title}」并已自动关联！`);
       setQuickFeedUrl("");
       setQuickFeedTitle("");
+
       if (!selectedSourceIds.includes(data.id)) {
         setSelectedSourceIds((prev) => [...prev, data.id]);
       }
-      // 重新拉取列表以同步
+
       await loadData();
-    } catch (err: any) {
-      setQuickFeedError(err.message || "添加订阅源失败");
+      toast.success(`成功添加源并绑定至当前频道`);
+    } catch (e: any) {
+      setQuickFeedError(e.message);
+      toast.error(`添加失败: ${e.message}`);
     } finally {
       setQuickAdding(false);
     }
   };
 
-  // 切换已有源的选择状态
-  const toggleSourceSelection = (sourceId: string) => {
+  const toggleSourceSelection = (feedId: string) => {
     setSelectedSourceIds((prev) =>
-      prev.includes(sourceId)
-        ? prev.filter((id) => id !== sourceId)
-        : [...prev, sourceId]
+      prev.includes(feedId)
+        ? prev.filter((id) => id !== feedId)
+        : [...prev, feedId]
     );
   };
 
   const handleSave = async () => {
     if (!name.trim()) {
-      setErrorMsg("频道名称不能为空");
+      setErrorMsg("请填写频道名称");
       return;
     }
+
     setSaving(true);
     setErrorMsg("");
 
@@ -236,22 +257,21 @@ export default function ChannelsSettingsTab() {
     };
 
     try {
-      const method = editingId ? "PUT" : "POST";
       const res = await fetch("/api/channels", {
-        method,
+        method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "保存失败");
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "保存失败");
 
+      toast.success(`频道「${name}」已保存成功！`);
       setShowModal(false);
       loadData();
     } catch (e: any) {
       setErrorMsg(e.message);
+      toast.error(`保存失败: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -269,14 +289,19 @@ export default function ChannelsSettingsTab() {
     if (!ok) return;
 
     try {
-      await fetch(`/api/channels?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/channels?id=${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `请求失败 (${res.status})`);
+      }
+      toast.success("频道已删除");
       loadData();
     } catch (e) {
       console.error(e);
+      toast.error(e instanceof Error ? e.message : "删除失败");
     }
   };
 
-  // 从频道中直接解绑/转移某个源
   const handleDetachFeed = async (feedId: string, currentChannelId: string, feedTitle: string) => {
     const otherChannels = channels.filter((c) => c.id !== currentChannelId);
     if (otherChannels.length === 0) {
@@ -289,8 +314,18 @@ export default function ChannelsSettingsTab() {
         variant: "danger",
       });
       if (ok) {
-        await fetch(`/api/feeds?id=${feedId}`, { method: "DELETE" });
-        loadData();
+        try {
+          const res = await fetch(`/api/feeds?id=${feedId}`, { method: "DELETE" });
+          if (!res.ok) {
+            const err = await res.json().catch(() => null);
+            throw new Error(err?.error || `请求失败 (${res.status})`);
+          }
+          toast.success("已删除该源");
+          loadData();
+        } catch (e) {
+          console.error(e);
+          toast.error(e instanceof Error ? e.message : "删除失败");
+        }
       }
       return;
     }
@@ -307,17 +342,31 @@ export default function ChannelsSettingsTab() {
 
     if (ok) {
       try {
-        await fetch("/api/feeds", {
+        const res = await fetch("/api/feeds", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: feedId, channelId: targetChannel.id }),
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.error || `请求失败 (${res.status})`);
+        }
+        toast.success(`已将源转移至「${targetChannel.name}」`);
         loadData();
       } catch (e) {
         console.error(e);
+        toast.error(e instanceof Error ? e.message : "转移失败");
       }
     }
   };
+
+  const modalFilteredFeeds = useMemo(() => {
+    if (!feedFilterQuery.trim()) return allFeeds;
+    const q = feedFilterQuery.toLowerCase();
+    return allFeeds.filter(
+      (f) => f.title?.toLowerCase().includes(q) || f.url?.toLowerCase().includes(q)
+    );
+  }, [allFeeds, feedFilterQuery]);
 
   return (
     <div className="space-y-6">
@@ -328,13 +377,13 @@ export default function ChannelsSettingsTab() {
             频道管理、订阅源与规则定制
           </h3>
           <p className="text-xs text-stone-500 mt-0.5">
-            自由分配各频道的专属 RSS 订阅源、定时早报推送时刻、专属 Prompt 风格与关键词过滤白/黑名单。
+            自由分配各频道的专属 RSS 订阅源、专属 Prompt 风格与关键词过滤白/黑名单。
           </p>
         </div>
 
         <button
           onClick={openCreateModal}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 transition-colors shadow-xs self-start sm:self-auto"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 transition-colors shadow-xs self-start sm:self-auto cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>新建定制频道</span>
@@ -350,19 +399,6 @@ export default function ChannelsSettingsTab() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {channels.map((ch) => {
-            let filterSummary = "";
-            if (ch.filterKeywords) {
-              try {
-                const parsed = JSON.parse(ch.filterKeywords);
-                if (parsed.include?.length)
-                  filterSummary += `必含: ${parsed.include.slice(0, 3).join("/")} `;
-                if (parsed.exclude?.length)
-                  filterSummary += `过滤: ${parsed.exclude.slice(0, 3).join("/")}`;
-              } catch {
-                filterSummary = ch.filterKeywords;
-              }
-            }
-
             const channelSources = ch.sources || [];
 
             return (
@@ -379,14 +415,14 @@ export default function ChannelsSettingsTab() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => openEditModal(ch)}
-                        className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+                        className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer"
                         title="编辑频道与订阅源"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDelete(ch.id, ch.name)}
-                        className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                         title="删除频道"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -415,7 +451,7 @@ export default function ChannelsSettingsTab() {
                       <button
                         type="button"
                         onClick={() => openEditModal(ch)}
-                        className="text-[11px] text-amber-800 hover:underline flex items-center gap-0.5"
+                        className="text-[11px] text-amber-800 hover:underline flex items-center gap-0.5 cursor-pointer"
                       >
                         <Plus className="w-2.5 h-2.5" />
                         <span>配置/绑定源</span>
@@ -442,7 +478,7 @@ export default function ChannelsSettingsTab() {
                               <button
                                 type="button"
                                 onClick={() => handleDetachFeed(src.id, ch.id, src.title)}
-                                className="opacity-0 group-hover/feed:opacity-100 text-stone-400 hover:text-rose-600 transition-opacity"
+                                className="opacity-0 group-hover/feed:opacity-100 text-stone-400 hover:text-rose-600 transition-opacity cursor-pointer"
                                 title="从当前频道移除或转移"
                               >
                                 <X className="w-3 h-3" />
@@ -452,50 +488,21 @@ export default function ChannelsSettingsTab() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-[11px] text-stone-400 bg-stone-50/50 p-2 rounded text-center border border-dashed border-stone-200">
-                        暂无订阅源，请点击上方配置绑定
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 定时与规则信息 */}
-                  <div className="space-y-1.5 text-xs border-t border-[#f1ede6] pt-3 mt-3">
-                    <div className="flex items-center justify-between text-stone-500">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-stone-400" />
-                        定时汇总调度
-                      </span>
-                      <span className="font-sans text-[11px] font-medium text-stone-600 bg-stone-100 px-2 py-0.5 rounded">
-                        每日早晨 08:00
-                      </span>
-                    </div>
-
-                    {filterSummary && (
-                      <div className="flex items-start gap-1 text-[11px] text-stone-500 pt-1">
-                        <Filter className="w-3 h-3 text-stone-400 shrink-0 mt-0.5" />
-                        <span className="line-clamp-1">{filterSummary}</span>
+                      <div className="text-[11px] text-stone-400 py-2 text-center bg-stone-50/50 rounded border border-dashed border-stone-200">
+                        暂未分配源，可点击上方配置
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-[#f1ede6] flex items-center justify-between text-xs">
-                  <a
-                    href={`/?channel=${ch.slug}`}
-                    className="text-amber-800 font-medium hover:underline flex items-center gap-1"
+                <div className="pt-3 mt-3 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-400 font-mono">
+                  <span>推送: {ch.scheduleTime}</span>
+                  <button
+                    onClick={() => openEditModal(ch)}
+                    className="text-stone-600 hover:text-stone-900 font-sans font-medium cursor-pointer"
                   >
-                    <span>查阅本期报刊</span>
-                    <span>&rarr;</span>
-                  </a>
-                  <a
-                    href={`/api/feed/${ch.slug}/rss.xml`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-stone-400 hover:text-stone-700"
-                    title="对外输出 RSS"
-                  >
-                    RSS Feed
-                  </a>
+                    修改规则 →
+                  </button>
                 </div>
               </div>
             );
@@ -505,8 +512,8 @@ export default function ChannelsSettingsTab() {
 
       {/* 创建 / 编辑频道弹窗 */}
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-[#eae6df] max-w-2xl w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-[#eae6df] max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-150">
             <h3 className="font-serif-title text-lg font-bold text-stone-900 mb-4">
               {editingId ? "编辑频道规则与订阅源" : "新建定制频道"}
             </h3>
@@ -542,33 +549,32 @@ export default function ChannelsSettingsTab() {
 
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">
-                  频道简介
+                  频道简介 / 导语
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="该频道聚焦的话题与定位..."
+                  placeholder="该频道聚焦的话题与定位，将在晨报首页作为导语呈现..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-stone-900"
                 />
               </div>
 
-
-              {/* 核心重点需求：频道订阅源配置区 */}
+              {/* 频道订阅源配置区 */}
               <div className="p-4 rounded-xl border border-amber-200/80 bg-amber-50/20 space-y-3.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <Rss className="w-4 h-4 text-amber-800" />
                     <span className="text-xs font-bold text-stone-900">
-                      频道订阅源配置 (关联 {selectedSourceIds.length} 个源)
+                      频道订阅源配置 (已关联 {selectedSourceIds.length} 个源)
                     </span>
                   </div>
                   <span className="text-[11px] text-stone-500">
-                    勾选即可将源归入本频道，每日晨报将针对这些源汇总
+                    勾选即可将源归入本频道
                   </span>
                 </div>
 
-                {/* 快捷新建并关联新源（编辑频道模式可用） */}
+                {/* 快捷新建并关联新源 */}
                 {editingId && (
                   <div className="bg-white p-3 rounded-lg border border-stone-200 space-y-2">
                     <div className="text-[11px] font-semibold text-stone-700 flex items-center gap-1">
@@ -594,7 +600,7 @@ export default function ChannelsSettingsTab() {
                         type="button"
                         onClick={handleQuickAddFeed}
                         disabled={quickAdding}
-                        className="sm:col-span-2 px-2.5 py-1.5 text-xs bg-amber-800 text-white font-medium rounded hover:bg-amber-900 disabled:opacity-50 transition-colors text-center"
+                        className="sm:col-span-2 px-2.5 py-1.5 text-xs bg-amber-800 text-white font-medium rounded hover:bg-amber-900 disabled:opacity-50 transition-colors text-center cursor-pointer"
                       >
                         {quickAdding ? "探测中..." : "探测并添加"}
                       </button>
@@ -610,18 +616,31 @@ export default function ChannelsSettingsTab() {
                   </div>
                 )}
 
-                {/* 从系统所有源中勾选 / 取消勾选 */}
+                {/* 从系统所有源中勾选 / 取消勾选（带快筛） */}
                 <div>
-                  <div className="text-[11px] font-semibold text-stone-600 mb-2">
-                    从系统所有已登记订阅源中选择关联：
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-[11px] font-semibold text-stone-600">
+                      从系统所有源中选择关联：
+                    </span>
+                    <div className="relative w-44">
+                      <Search className="w-3 h-3 text-stone-400 absolute left-2 top-2" />
+                      <input
+                        type="text"
+                        placeholder="快筛订阅源..."
+                        value={feedFilterQuery}
+                        onChange={(e) => setFeedFilterQuery(e.target.value)}
+                        className="w-full pl-6 pr-2 py-1 text-[11px] bg-white rounded border border-stone-200 focus:outline-none focus:border-stone-900"
+                      />
+                    </div>
                   </div>
+
                   {allFeeds.length === 0 ? (
                     <div className="text-xs text-stone-400 py-3 text-center bg-white rounded border border-stone-200">
                       系统中尚未添加任何 RSS 源，请先添加源或使用上方快捷添加
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1">
-                      {allFeeds.map((feed) => {
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 bg-white/60 rounded-lg border border-stone-200">
+                      {modalFilteredFeeds.map((feed) => {
                         const isChecked = selectedSourceIds.includes(feed.id);
                         const isFromOther =
                           feed.channelId &&
@@ -652,7 +671,7 @@ export default function ChannelsSettingsTab() {
                               </div>
                               {isFromOther && feed.channel && (
                                 <div className="text-[10px] text-amber-700 mt-0.5">
-                                  原归属: {feed.channel.name}（勾选后将移至本频道）
+                                  原归属: {feed.channel.name}（勾选后移至本频道）
                                 </div>
                               )}
                             </div>
@@ -664,12 +683,30 @@ export default function ChannelsSettingsTab() {
                 </div>
               </div>
 
-              {/* 专属 Prompt 定制 */}
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1 flex items-center justify-between">
-                  <span>专属 AI 提炼 Prompt 定制（选填）</span>
-                  <Sparkles className="w-3 h-3 text-amber-600" />
-                </label>
+              {/* 专属 Prompt 定制 + 预设库 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-stone-700 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                    <span>专属 AI 提炼 Prompt 定制（选填）</span>
+                  </label>
+                  <span className="text-[11px] text-stone-400">点击下方预设一键套用</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap pb-1">
+                  {PROMPT_PRESETS.map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setPromptTemplate(preset.text)}
+                      className="px-2 py-1 bg-stone-100 hover:bg-amber-100 hover:text-amber-900 text-stone-600 rounded-md text-[11px] transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <Wand2 className="w-2.5 h-2.5 text-amber-700" />
+                      <span>{preset.name}</span>
+                    </button>
+                  ))}
+                </div>
+
                 <textarea
                   rows={3}
                   placeholder="如：重点关注模型架构演进与技术路线，跨源去重，语气专业简炼，过滤浮夸公关稿..."
@@ -690,7 +727,7 @@ export default function ChannelsSettingsTab() {
                   </label>
                   <input
                     type="text"
-                    placeholder="大模型, 智能体, 开源, 融资"
+                    placeholder="大模型, 智能体, 开源, 架构"
                     value={includeKeywords}
                     onChange={(e) => setIncludeKeywords(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-stone-900"
@@ -721,14 +758,14 @@ export default function ChannelsSettingsTab() {
             <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-stone-200">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100"
+                className="px-4 py-2 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 cursor-pointer"
               >
                 取消
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 disabled:opacity-50 cursor-pointer"
               >
                 {saving ? "保存中..." : "保存频道设置"}
               </button>

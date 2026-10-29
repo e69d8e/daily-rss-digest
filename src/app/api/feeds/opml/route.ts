@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
 import { parseOpml, generateOpml } from "@/lib/rss/opml";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   try {
     const channels = await prisma.channel.findMany({
       include: {
@@ -30,6 +34,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const denied = await requireAdmin(req);
+    if (denied) return denied;
+
     const body = await req.json();
     const { opmlContent, targetChannelId } = body;
 

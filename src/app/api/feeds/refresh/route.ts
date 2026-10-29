@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
 import { fetchAndParseFeed } from "@/lib/rss/parser";
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
+    const denied = await requireAdmin(req);
+    if (denied) return denied;
+
     const sources = await prisma.feedSource.findMany();
     const results = [];
 

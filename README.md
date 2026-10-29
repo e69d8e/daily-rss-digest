@@ -179,8 +179,8 @@ TURSO_AUTH_TOKEN=""
 # 管理员安全访问密码（留空则不开启访问锁）
 ADMIN_PASSWORD="your_admin_secret_password"
 
-# 定时任务安全调用秘钥
-CRON_SECRET="rss_digest_secret_key_2026"
+# 定时任务安全调用秘钥（必填，未配置时 cron 接口拒绝所有调用）
+CRON_SECRET="your_production_cron_secret"
 ```
 
 #### 方案 B：云端与生产模式（基于 Turso Cloud LibSQL）
@@ -355,8 +355,8 @@ npm run start
 - `GET /api/feed/[slug]/rss.xml`：输出标准 RSS 2.0 格式订阅源，支持直接填入外部阅读器或播客客户端反向订阅。
 
 ### 8. 定时自动触发任务接口 (`/api/cron/digest`)
-- `GET /api/cron/digest?key={CRON_SECRET}` 或请求头携带 `Authorization: Bearer {CRON_SECRET}`：
-  触发全局激活频道的晨报生成与全渠道推送任务。
+- `GET /api/cron/digest`，请求头携带 `Authorization: Bearer {CRON_SECRET}`（或 `x-cron-secret: {CRON_SECRET}`）：
+  触发全局激活频道的晨报生成与全渠道推送任务。出于安全考虑不支持 URL 查询参数传密钥，且服务端未配置 `CRON_SECRET` 时该接口一律返回 401。
 
 ---
 

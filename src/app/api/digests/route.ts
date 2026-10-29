@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
 import { generateDailyDigestForChannel } from "@/lib/digest/generator";
 
 export async function GET(req: Request) {
@@ -96,6 +97,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const denied = await requireAdmin(req);
+    if (denied) return denied;
+
     const body = await req.json();
     const { channelId, date } = body;
 

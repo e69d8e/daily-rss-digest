@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaLibSql } from "@prisma/adapter-libsql/web";
+import { PrismaLibSQL } from "@prisma/adapter-libsql";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
@@ -9,7 +9,7 @@ function createPrismaInstance(): PrismaClient {
 
   // 如果配置了 Turso 云端 LibSQL 数据库 (例如在 Netlify Serverless 或本地直连开发)
   if (tursoUrl && (tursoUrl.startsWith("libsql://") || tursoUrl.startsWith("https://"))) {
-    const adapter = new PrismaLibSql({
+    const adapter = new PrismaLibSQL({
       url: tursoUrl,
       authToken: tursoAuthToken,
     });
