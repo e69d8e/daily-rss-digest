@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback } from "react";
 import { TopicItem } from "@/types";
-import { ArrowUpRight, BookOpen, Copy, Check, Sparkles, ExternalLink } from "lucide-react";
-import { useToast } from "@/components/ui/Toast";
+import { ArrowUpRight, BookOpen, Sparkles } from "lucide-react";
+import CopyButton from "@/components/ui/CopyButton";
 
 interface TopicSectionProps {
   topic: TopicItem;
@@ -24,154 +24,148 @@ export default function TopicSection({
   channelName,
   onOpenArticle,
 }: TopicSectionProps) {
-  const { toast } = useToast();
-  const [copied, setCopied] = useState(false);
   const formatIndex = String(index + 1).padStart(2, "0");
+  const primarySource = topic.sources?.[0];
 
   const renderSentiment = (sentiment?: string) => {
     switch (sentiment) {
       case "positive":
         return (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            积极利好
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success bg-success-soft px-2 py-0.5 rounded border border-success-border">
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-success motion-safe:animate-pulse"
+              aria-hidden="true"
+            />
+            <span>积极利好</span>
           </span>
         );
       case "critical":
       case "negative":
         return (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200/60">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
-            警惕/风险
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-danger bg-danger-soft px-2 py-0.5 rounded border border-danger-border">
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-danger motion-safe:animate-pulse"
+              aria-hidden="true"
+            />
+            <span>警惕/风险</span>
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-stone-600 bg-stone-100 px-2 py-0.5 rounded border border-stone-200/60">
-            <span className="w-1.5 h-1.5 rounded-full bg-stone-400"></span>
-            客观观察
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-2 bg-subtle px-2 py-0.5 rounded border border-line">
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-ink-muted"
+              aria-hidden="true"
+            />
+            <span>客观观察</span>
           </span>
         );
     }
   };
 
-  const primarySource = topic.sources && topic.sources[0];
-
-  const handleCopyTopic = async () => {
-    try {
-      const dateText = digestDate ? `【${digestDate} 智汇晨报】` : "【智汇晨报焦点】";
-      const channelText = channelName ? ` [${channelName}]` : "";
-      const sourcesText = topic.sources && topic.sources.length > 0
-        ? `\n\n📌 参考来源：\n${topic.sources.map((s) => `• [${s.sourceName}] ${s.articleTitle} (${s.url})`).join("\n")}`
+  const getCopyText = useCallback(() => {
+    const dateText = digestDate
+      ? `【${digestDate} 智汇晨报】`
+      : "【智汇晨报焦点】";
+    const channelText = channelName ? ` [${channelName}]` : "";
+    const sourcesText =
+      topic.sources && topic.sources.length > 0
+        ? `\n\n📌 参考来源：\n${topic.sources
+            .map((s) => `• [${s.sourceName}] ${s.articleTitle} (${s.url})`)
+            .join("\n")}`
         : "";
-
-      const text = `${dateText}${channelText} ${topic.title}\n\n${topic.summary}${sourcesText}\n\n—— 由 Daily RSS Digest 每日智汇晨报聚类提炼`;
-
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-
-      setCopied(true);
-      toast.success("已复制焦点议题与参考来源至剪贴板");
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.warn("复制失败:", e);
-      toast.error("复制失败，请手动选择复制");
-    }
-  };
+    return `${dateText}${channelText} ${topic.title}\n\n${topic.summary}${sourcesText}\n\n—— 由 Daily RSS Digest 每日智汇晨报聚类提炼`;
+  }, [digestDate, channelName, topic]);
 
   return (
-    <article className="border-b border-[#eae6df] pb-8 last:border-b-0 space-y-3.5 transition-colors duration-200">
-      {/* 序号与状态 */}
+    <article
+      className={`border-b border-line pb-8 last:border-b-0 space-y-3.5 transition-colors duration-200 ${
+        // 仅对首屏折叠线以下的议题启用 content-visibility: auto
+        index >= 2 ? "mwg-deferred" : ""
+      }`}
+    >
+      {/* 序号、情感状态、标签与复制操作 */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs font-bold text-stone-400 tracking-wider flex items-center gap-1">
-            <span className="text-amber-800 font-serif text-sm">§</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-mono text-xs font-bold text-ink-muted tracking-wider flex items-center gap-1">
+            <span className="text-brand font-serif text-sm" aria-hidden="true">
+              §
+            </span>
             <span>{formatIndex}</span>
           </span>
           {renderSentiment(topic.sentiment)}
           {topic.impactScore && (
-            <div className="flex items-center gap-1.5 text-[11px] font-mono text-stone-500 bg-stone-100/60 px-2 py-0.5 rounded border border-stone-200/40">
-              <Sparkles className="w-3 h-3 text-amber-700" />
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono text-ink-muted bg-subtle px-2 py-0.5 rounded border border-line">
+              <Sparkles
+                className="w-3 h-3 text-brand"
+                aria-hidden="true"
+              />
               <span>影响力 {topic.impactScore}/10</span>
-            </div>
+            </span>
           )}
         </div>
 
-        {/* 标签与一键复制操作 */}
         <div className="flex items-center gap-2 flex-wrap">
           {topic.tags && topic.tags.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <ul
+              aria-label="议题标签"
+              className="flex items-center gap-1.5 flex-wrap list-none p-0 m-0"
+            >
               {topic.tags.map((tag) => (
-                <span
+                <li
                   key={tag}
-                  className="text-[11px] text-stone-500 bg-stone-100/80 px-2 py-0.5 rounded border border-stone-200/40 font-sans"
+                  className="text-xs text-ink-muted bg-subtle px-2 py-0.5 rounded border border-line font-sans"
                 >
                   #{tag}
-                </span>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
 
-          <button
-            onClick={handleCopyTopic}
-            className="flex items-center gap-1 text-[11px] text-stone-400 hover:text-stone-800 px-2 py-0.5 rounded hover:bg-stone-100 transition-colors cursor-pointer"
-            title="复制该议题摘要与来源"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3 h-3 text-emerald-600" />
-                <span className="text-emerald-700">已复制</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3 h-3" />
-                <span>复制要点</span>
-              </>
-            )}
-          </button>
+          <CopyButton
+            getText={getCopyText}
+            label="复制要点"
+            copiedLabel="已复制"
+            className="text-xs text-ink-muted hover:text-ink px-2 py-0.5 rounded hover:bg-subtle transition-colors"
+            iconClassName="w-3 h-3"
+          />
         </div>
       </div>
 
-      {/* 议题标题 */}
-      <h3
-        onClick={() => {
-          if (primarySource && onOpenArticle) {
-            onOpenArticle({
-              url: primarySource.url,
-              title: primarySource.articleTitle,
-              sourceName: primarySource.sourceName,
-            });
-          }
-        }}
-        className={`font-serif-title text-lg sm:text-xl lg:text-2xl font-bold text-stone-900 leading-snug tracking-tight transition-colors ${
-          primarySource && onOpenArticle
-            ? "cursor-pointer hover:text-amber-900 group"
-            : ""
-        }`}
-      >
-        <span className="hover-underline-animation">{topic.title}</span>
+      {/* 议题标题：使用语义 <button> 承载交互，避免 clickable <h3> */}
+      <h3 className="font-serif-title text-lg sm:text-xl lg:text-2xl font-bold text-ink leading-snug tracking-tight">
+        {primarySource && onOpenArticle ? (
+          <button
+            type="button"
+            onClick={() =>
+              onOpenArticle({
+                url: primarySource.url,
+                title: primarySource.articleTitle,
+                sourceName: primarySource.sourceName,
+              })
+            }
+            className="text-start hover:text-brand transition-colors cursor-pointer group rounded-sm"
+          >
+            <span className="hover-underline-animation">{topic.title}</span>
+          </button>
+        ) : (
+          <span>{topic.title}</span>
+        )}
       </h3>
 
-      {/* 深度提炼正文 */}
-      <p className="text-stone-700 leading-[1.8] sm:leading-[1.85] text-sm sm:text-[15px] font-sans text-justify">
+      {/* 深度提炼正文：避免两端对齐造成的空白河流，使用 text-wrap: pretty */}
+      <p className="text-ink-2 leading-[1.8] sm:leading-[1.85] text-sm sm:text-[15px] font-sans text-start">
         {topic.summary}
       </p>
 
       {/* 原文溯源引用与直接阅读入口 */}
       {topic.sources && topic.sources.length > 0 && (
         <div className="pt-2">
-          <div className="flex items-center justify-between text-[11px] font-medium text-stone-400 mb-2 font-mono uppercase tracking-wider">
+          <div className="flex items-center justify-between text-xs font-medium text-ink-muted mb-2 font-mono uppercase tracking-wider gap-2 flex-wrap">
             <span>参考源报道 · {topic.sources.length} 篇</span>
             {primarySource && onOpenArticle && (
               <button
+                type="button"
                 onClick={() =>
                   onOpenArticle({
                     url: primarySource.url,
@@ -179,19 +173,19 @@ export default function TopicSection({
                     sourceName: primarySource.sourceName,
                   })
                 }
-                className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 font-sans normal-case cursor-pointer transition-colors"
+                className="inline-flex items-center gap-1 text-brand hover:text-brand-hover font-sans normal-case cursor-pointer transition-colors"
               >
-                <BookOpen className="w-3.5 h-3.5" />
+                <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>应用内阅读详情</span>
               </button>
             )}
           </div>
 
-          <div className="space-y-1.5">
+          <ul className="space-y-1.5 list-none p-0 m-0">
             {topic.sources.map((src, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between gap-2 text-xs py-1.5 px-2.5 rounded-lg bg-stone-50/60 hover:bg-stone-100/80 border border-stone-200/50 transition-colors group min-h-[36px]"
+              <li
+                key={`${src.url}-${i}`}
+                className="flex items-center justify-between gap-2 text-xs py-1.5 px-2.5 rounded-lg bg-subtle hover:bg-muted-surface border border-line transition-colors group min-h-[38px]"
               >
                 <button
                   type="button"
@@ -203,34 +197,31 @@ export default function TopicSection({
                         sourceName: src.sourceName,
                       });
                     } else {
-                      window.open(src.url, "_blank");
+                      window.open(src.url, "_blank", "noopener,noreferrer");
                     }
                   }}
-                  className="flex items-baseline gap-2 text-left truncate flex-1 cursor-pointer"
-                  title="在应用内阅读详情"
+                  className="flex items-baseline gap-2 text-start truncate flex-1 cursor-pointer min-w-0 py-0.5"
                 >
-                  <span className="font-semibold text-stone-900 shrink-0 font-sans text-[11px] bg-stone-200/70 px-1.5 py-0.5 rounded">
+                  <span className="font-semibold text-ink shrink-0 font-sans text-[11px] bg-muted-surface px-1.5 py-0.5 rounded border border-line">
                     {src.sourceName}
                   </span>
-                  <span className="text-stone-600 group-hover:text-amber-900 truncate">
+                  <span className="text-ink-2 group-hover:text-brand truncate">
                     {src.articleTitle}
                   </span>
                 </button>
 
-                {/* 独立外链直达图标 */}
                 <a
                   href={src.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="p-1 text-stone-400 hover:text-stone-800 hover:bg-stone-200/60 rounded transition-colors shrink-0 cursor-pointer"
-                  title="在新窗口打开源网页"
+                  aria-label={`在新窗口打开原网页：${src.articleTitle}`}
+                  className="min-h-[28px] min-w-[28px] p-1 text-ink-muted hover:text-ink hover:bg-card rounded transition-colors shrink-0 inline-flex items-center justify-center"
                 >
-                  <ArrowUpRight className="w-3.5 h-3.5" />
+                  <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
                 </a>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       )}
     </article>

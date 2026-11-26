@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useId } from "react";
 import {
   Play,
   Pause,
@@ -10,7 +10,6 @@ import {
   ChevronUp,
   FileText,
   Clock,
-  Sparkles,
 } from "lucide-react";
 import { isAnyModalOpen } from "@/lib/modalStack";
 
@@ -20,16 +19,18 @@ interface TtsPlayerProps {
 }
 
 export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
+  const transcriptId = useId();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rate, setRate] = useState(1.0);
   const [supported, setSupported] = useState(true);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [transcriptHidden, setTranscriptHidden] = useState(true);
   const [isMainCardOutOfView, setIsMainCardOutOfView] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const transcriptRef = useRef<HTMLDivElement>(null);
+  const expandableRef = useRef<HTMLDivElement>(null);
 
   // 智能按标点分句，解决 15 秒静音 Bug 并支持单句高亮
   const sentences = useMemo(() => {
@@ -44,7 +45,7 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
   // 预计收听时间 (每分钟约 240 字)
   const estimatedSeconds = useMemo(() => {
     const totalChars = audioText.length;
-    return Math.max(30, Math.round((totalChars / 240) * 60 / rate));
+    return Math.max(30, Math.round(((totalChars / 240) * 60) / rate));
   }, [audioText, rate]);
 
   const formatTime = (secs: number) => {
@@ -58,6 +59,37 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
   const currentIndexRef = useRef(0);
   const rateRef = useRef(rate);
   rateRef.current = rate;
+
+  // 折叠面板固有尺寸过渡与 hidden 状态同步（确保收起后移出无障碍树与 Tab 顺序）
+  const toggleTranscript = () => {
+    if (!showTranscript) {
+      setTranscriptHidden(false);
+      requestAnimationFrame(() => {
+        setShowTranscript(true);
+      });
+    } else {
+      setShowTranscript(false);
+      const el = expandableRef.current;
+      if (!el) {
+        setTranscriptHidden(true);
+        return;
+      }
+      requestAnimationFrame(() => {
+        const transitions = el
+          .getAnimations()
+          .filter((a) => a instanceof CSSTransition);
+        if (transitions.length === 0) {
+          setTranscriptHidden(true);
+          return;
+        }
+        void Promise.allSettled(transitions.map((t) => t.finished)).then(() => {
+          if (el.getAttribute("data-open") !== "true") {
+            setTranscriptHidden(true);
+          }
+        });
+      });
+    }
+  };
 
   // 监控主播放器是否滚出视口
   useEffect(() => {
@@ -88,7 +120,10 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
 
       const loadVoices = () => {
         try {
-          if (window.speechSynthesis && typeof window.speechSynthesis.getVoices === "function") {
+          if (
+            window.speechSynthesis &&
+            typeof window.speechSynthesis.getVoices === "function"
+          ) {
             window.speechSynthesis.getVoices();
           }
         } catch {
@@ -106,7 +141,6 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
     }
 
     return () => {
-      // 卸载时清理语音列表回调，避免指向已销毁的旧闭包
       try {
         if (typeof window !== "undefined" && window.speechSynthesis) {
           window.speechSynthesis.onvoiceschanged = null;
@@ -129,42 +163,29 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
     };
   }, []);
 
+  const handleStop = () => {
+    isPlayingRef.current = false;
+    isPausedRef.current = false;
+    try {
+      if (
+        typeof window !== "undefined" &&
+        window.speechSynthesis &&
+        typeof window.speechSynthesis.cancel === "function"
+      ) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {
+      // ignore
+    }
+    setIsPlaying(false);
+    setIsPaused(false);
+    setCurrentSentenceIndex(0);
+    currentIndexRef.current = 0;
+  };
+
   useEffect(() => {
     handleStop();
   }, [audioText]);
-
-  // 全局空格键监听：播放 / 暂停
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      // 焦点在交互元素上时空格交给浏览器默认行为（激活按钮/链接）
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "BUTTON" ||
-        target.tagName === "A" ||
-        target.tagName === "SELECT" ||
-        target.isContentEditable
-      ) {
-        return;
-      }
-
-      // 弹窗（阅读器/确认框/帮助面板等）打开时不接管空格，避免误触背景语音
-      if (isAnyModalOpen()) return;
-
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (isPlayingRef.current) {
-          handlePause();
-        } else {
-          handlePlay();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPaused]);
 
   const speakSentence = (index: number) => {
     if (!isPlayingRef.current || index >= sentences.length) {
@@ -292,7 +313,10 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
   const handlePause = () => {
     if (!supported) return;
     try {
-      if (window.speechSynthesis && typeof window.speechSynthesis.pause === "function") {
+      if (
+        window.speechSynthesis &&
+        typeof window.speechSynthesis.pause === "function"
+      ) {
         window.speechSynthesis.pause();
       }
     } catch {
@@ -304,25 +328,38 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
     isPausedRef.current = true;
   };
 
-  const handleStop = () => {
-    isPlayingRef.current = false;
-    isPausedRef.current = false;
-    try {
+  // 全局空格键监听：播放 / 暂停
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
       if (
-        typeof window !== "undefined" &&
-        window.speechSynthesis &&
-        typeof window.speechSynthesis.cancel === "function"
+        !target ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "BUTTON" ||
+        target.tagName === "A" ||
+        target.tagName === "SELECT" ||
+        target.tagName === "SUMMARY" ||
+        target.isContentEditable
       ) {
-        window.speechSynthesis.cancel();
+        return;
       }
-    } catch {
-      // ignore
-    }
-    setIsPlaying(false);
-    setIsPaused(false);
-    setCurrentSentenceIndex(0);
-    currentIndexRef.current = 0;
-  };
+
+      if (isAnyModalOpen()) return;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (isPlayingRef.current) {
+          handlePause();
+        } else {
+          handlePlay();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPaused]);
 
   const toggleRate = () => {
     const nextRates = [1.0, 1.25, 1.5];
@@ -333,7 +370,10 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
 
     if (isPlaying) {
       try {
-        if (window.speechSynthesis && typeof window.speechSynthesis.cancel === "function") {
+        if (
+          window.speechSynthesis &&
+          typeof window.speechSynthesis.cancel === "function"
+        ) {
           window.speechSynthesis.cancel();
         }
       } catch {
@@ -347,22 +387,39 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
     }
   };
 
-  const progress =
-    sentences.length > 0
-      ? Math.round(((currentSentenceIndex + 1) / sentences.length) * 100)
-      : 0;
+  const handleJumpToSentence = (idx: number) => {
+    if (!supported) return;
+    isPlayingRef.current = true;
+    isPausedRef.current = false;
+    setIsPlaying(true);
+    setIsPaused(false);
+    try {
+      window.speechSynthesis?.cancel?.();
+    } catch {
+      // ignore
+    }
+    setTimeout(() => {
+      if (isPlayingRef.current) {
+        speakSentence(idx);
+      }
+    }, 40);
+  };
 
   const scrollToTop = () => {
+    const prefersReduced =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const behavior: ScrollBehavior = prefersReduced ? "auto" : "smooth";
     if (containerRef.current) {
-      containerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      containerRef.current.scrollIntoView({ behavior, block: "center" });
     } else {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior });
     }
   };
 
   if (!supported) {
     return (
-      <div className="p-3 bg-stone-100 rounded-lg text-xs text-stone-500">
+      <div className="p-3 bg-subtle border border-line rounded-xl text-xs text-ink-muted">
         当前浏览器环境未检测到 Web Speech 语音播放引擎。
       </div>
     );
@@ -371,207 +428,261 @@ export default function TtsPlayer({ audioText, title }: TtsPlayerProps) {
   return (
     <>
       {/* 主播放器卡片 */}
-      <div
+      <section
         ref={containerRef}
-        className="rounded-2xl border border-[#eae6df] bg-[#faf9f6] p-4 sm:p-5 shadow-2xs space-y-3.5 transition-all duration-200"
+        aria-label="语音晨报播放器"
+        className="rounded-2xl border border-line bg-subtle p-4 sm:p-5 shadow-2xs space-y-3.5 transition-colors duration-200"
       >
         <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
           {/* 左侧：播放按钮 + 标题与波形动效 */}
           <div className="flex items-center gap-3.5 min-w-0 flex-1">
             <button
+              type="button"
               onClick={isPlaying ? handlePause : handlePlay}
-              className="w-11 h-11 rounded-full bg-stone-900 text-white flex items-center justify-center hover:bg-amber-800 transition-all shrink-0 shadow-sm cursor-pointer hover:scale-105 active:scale-95"
-              title={isPlaying ? "暂停播报 (Space)" : isPaused ? "继续播报 (Space)" : "开始听晨报 (Space)"}
+              aria-label={
+                isPlaying
+                  ? "暂停播报"
+                  : isPaused
+                  ? "继续播报"
+                  : "开始听晨报"
+              }
+              title={
+                isPlaying
+                  ? "暂停播报 (Space)"
+                  : isPaused
+                  ? "继续播报 (Space)"
+                  : "开始听晨报 (Space)"
+              }
+              className="w-11 h-11 rounded-full bg-action text-action-fg flex items-center justify-center hover:bg-action-hover transition-colors motion-safe:hover:scale-105 motion-safe:active:scale-95 shrink-0 shadow-sm cursor-pointer"
             >
               {isPlaying ? (
-                <Pause className="w-4 h-4 fill-current" />
+                <Pause className="w-4 h-4 fill-current" aria-hidden="true" />
               ) : (
-                <Play className="w-4 h-4 fill-current ml-0.5" />
+                <Play
+                  className="w-4 h-4 fill-current ms-0.5"
+                  aria-hidden="true"
+                />
               )}
             </button>
 
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs sm:text-[13px] font-bold text-stone-900 truncate">
+                <span className="text-xs sm:text-sm font-bold text-ink truncate">
                   {title || "今日智汇晨报"}
                 </span>
 
                 {isPlaying && (
-                  <div className="inline-flex items-center gap-1 text-[11px] font-mono text-amber-900 bg-amber-100/80 border border-amber-300/80 px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 animate-pulse">
-                    {/* 跳动音频波形指示条 */}
-                    <div className="flex items-center gap-0.5 h-2.5">
-                      <span className="w-0.5 h-full bg-amber-700 animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <span className="w-0.5 h-2 bg-amber-700 animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <span className="w-0.5 h-full bg-amber-700 animate-bounce" style={{ animationDelay: "300ms" }} />
-                    </div>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-mono text-brand-ink bg-brand-soft border border-brand-border px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
+                    <span
+                      className="flex items-center gap-0.5 h-2.5"
+                      aria-hidden="true"
+                    >
+                      <span
+                        className="w-0.5 h-full bg-brand motion-safe:animate-bounce"
+                        style={{ animationDelay: "0ms" }}
+                      />
+                      <span
+                        className="w-0.5 h-2 bg-brand motion-safe:animate-bounce"
+                        style={{ animationDelay: "150ms" }}
+                      />
+                      <span
+                        className="w-0.5 h-full bg-brand motion-safe:animate-bounce"
+                        style={{ animationDelay: "300ms" }}
+                      />
+                    </span>
                     <span>
                       播报中 ({currentSentenceIndex + 1}/{sentences.length})
                     </span>
-                  </div>
+                  </span>
                 )}
               </div>
 
-              <div className="text-[11px] text-stone-400 font-mono flex items-center gap-2 flex-wrap">
+              <div className="text-xs text-ink-muted font-mono flex items-center gap-2 flex-wrap">
                 <span className="flex items-center gap-1">
-                  <Volume2 className="w-3 h-3 text-amber-700" />
+                  <Volume2
+                    className="w-3.5 h-3.5 text-brand"
+                    aria-hidden="true"
+                  />
                   <span>AI 语音晨报</span>
                 </span>
-                <span>•</span>
+                <span aria-hidden="true">•</span>
                 <span className="flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
+                  <Clock className="w-3 h-3" aria-hidden="true" />
                   <span>约 {formatTime(estimatedSeconds)}</span>
                 </span>
-                <span>•</span>
+                <span aria-hidden="true">•</span>
                 <span>共 {sentences.length} 句</span>
-                <span className="hidden sm:inline text-stone-300">•</span>
-                <span className="hidden sm:inline text-stone-400 font-sans">按空格键启停</span>
+                <span
+                  className="hidden sm:inline text-line-strong"
+                  aria-hidden="true"
+                >
+                  •
+                </span>
+                <span className="hidden sm:inline text-ink-muted font-sans">
+                  按空格键启停
+                </span>
               </div>
             </div>
           </div>
 
-          {/* 右侧：语速调节 + 播音文稿展开 (自适应布局) */}
-          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-[#eae6df]/60 sm:ml-auto">
-            {/* 语速 */}
+          {/* 右侧：语速调节 + 停止 + 播音文稿展开 */}
+          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-line sm:ms-auto">
             <button
+              type="button"
               onClick={toggleRate}
-              className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg border border-[#eae6df] bg-white text-stone-700 hover:bg-stone-100 transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
-              title="调节朗读倍速"
+              aria-label={`调节朗读倍速，当前 ${rate} 倍速`}
+              className="min-h-[30px] px-2.5 py-1 text-xs font-mono font-medium rounded-lg border border-line bg-card text-ink-2 hover:text-ink hover:bg-muted-surface transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
             >
               {rate}x
             </button>
 
-            {/* 停止按钮 */}
             {(isPlaying || isPaused) && (
               <button
+                type="button"
                 onClick={handleStop}
-                className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg border border-[#eae6df] bg-white hover:bg-stone-100 transition-colors cursor-pointer shadow-2xs"
-                title="停止播放"
+                aria-label="停止播放"
+                className="min-h-[30px] min-w-[30px] p-1.5 text-ink-muted hover:text-danger rounded-lg border border-line bg-card hover:bg-danger-soft transition-colors cursor-pointer shadow-2xs inline-flex items-center justify-center"
               >
-                <Square className="w-3.5 h-3.5 fill-current" />
+                <Square className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
               </button>
             )}
 
-            {/* 查看播音文稿 */}
             <button
-              onClick={() => setShowTranscript(!showTranscript)}
-              className={`flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-lg border transition-all whitespace-nowrap cursor-pointer shadow-2xs ${
+              type="button"
+              onClick={toggleTranscript}
+              aria-expanded={showTranscript}
+              aria-controls={transcriptId}
+              className={`min-h-[30px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap cursor-pointer shadow-2xs ${
                 showTranscript
-                  ? "bg-amber-50 border-amber-300 text-amber-900"
-                  : "bg-white border-[#eae6df] text-stone-600 hover:text-stone-900 hover:border-stone-400"
+                  ? "bg-brand-soft border-brand-border text-brand-ink"
+                  : "bg-card border-line text-ink-2 hover:text-ink hover:border-line-strong"
               }`}
             >
-              <FileText className="w-3.5 h-3.5" />
+              <FileText className="w-3.5 h-3.5" aria-hidden="true" />
               <span>{showTranscript ? "收起文稿" : "播音文稿"}</span>
             </button>
           </div>
         </div>
 
-        {/* 进度条 */}
-        {progress > 0 && (
-          <div className="w-full bg-stone-200/80 h-1.5 rounded-full overflow-hidden">
-            <div
-              className="bg-amber-800 h-full transition-all duration-300 rounded-full"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+        {/* 原生 <progress> 播报进度条 */}
+        {sentences.length > 0 && (isPlaying || isPaused || currentSentenceIndex > 0) && (
+          <progress
+            className="mwg-progress"
+            value={currentSentenceIndex + 1}
+            max={sentences.length}
+            aria-label={`语音晨报播报进度，第 ${currentSentenceIndex + 1} 句，共 ${sentences.length} 句`}
+          />
         )}
 
-        {/* 展开的播报文稿实录（卡拉OK式高亮） */}
-        {showTranscript && (
-          <div
-            ref={transcriptRef}
-            className="mt-2 p-4 bg-white rounded-xl border border-[#eae6df] text-xs leading-relaxed text-stone-700 font-sans max-h-60 overflow-y-auto space-y-2 animate-in fade-in"
-          >
-            <div className="font-semibold text-stone-900 pb-2 border-b border-stone-100 flex items-center justify-between">
+        {/* 展开的播报文稿实录（固有尺寸平滑展开 + 语义按钮单句跳转） */}
+        <div
+          ref={expandableRef}
+          id={transcriptId}
+          hidden={transcriptHidden}
+          data-open={showTranscript ? "true" : "false"}
+          className="mwg-expandable"
+        >
+          <div className="mt-2 p-4 bg-card rounded-xl border border-line text-xs leading-relaxed text-ink-2 font-sans max-h-60 overflow-y-auto space-y-2">
+            <div className="font-semibold text-ink pb-2 border-b border-line flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-amber-800" />
-                <span>播报文稿实录（共 {sentences.length} 句）：</span>
+                <CheckCircle2
+                  className="w-3.5 h-3.5 text-brand"
+                  aria-hidden="true"
+                />
+                <span>播报文稿实录（共 {sentences.length} 句，点击任意句可跳播）：</span>
               </div>
               {isPlaying && (
-                <span className="text-[11px] font-mono text-amber-800">
-                  朗读中: 第 {currentSentenceIndex + 1} 句
+                <span className="text-xs font-mono text-brand shrink-0">
+                  第 {currentSentenceIndex + 1} 句
                 </span>
               )}
             </div>
 
-            <div className="leading-relaxed">
+            <div className="leading-relaxed flex flex-wrap gap-1">
               {sentences.map((sentence, idx) => {
                 const isCurrent = isPlaying && currentSentenceIndex === idx;
                 return (
-                  <span
+                  <button
                     key={idx}
-                    onClick={() => {
-                      if (isPlayingRef.current) {
-                        speakSentence(idx);
-                      }
-                    }}
-                    className={`inline-block mr-1 my-0.5 px-1.5 py-0.5 rounded cursor-pointer transition-all ${
+                    type="button"
+                    onClick={() => handleJumpToSentence(idx)}
+                    aria-current={isCurrent ? "true" : undefined}
+                    className={`text-start px-1.5 py-0.5 rounded cursor-pointer transition-colors ${
                       isCurrent
-                        ? "bg-amber-100 text-amber-950 font-semibold ring-1 ring-amber-300"
-                        : "text-stone-600 hover:text-stone-900 hover:bg-stone-50"
+                        ? "bg-brand-soft text-brand-ink font-semibold ring-1 ring-brand-border"
+                        : "text-ink-2 hover:text-ink hover:bg-subtle"
                     }`}
-                    title="点击跳转至此句朗读"
                   >
                     {sentence}
-                  </span>
+                  </button>
                 );
               })}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
 
-      {/* 底部随行迷你播放条（Docked Sticky Mini-Player）：当主播放器滚出视口且正在播放时浮现 */}
+      {/* 底部随行迷你播放条（Docked Sticky Mini-Player） */}
       {isMainCardOutOfView && (isPlaying || isPaused) && (
-        <div className="fixed bottom-4 inset-x-0 mx-auto max-w-lg z-40 px-4 animate-in slide-in-from-bottom-5 duration-200">
-          <div className="bg-stone-950/95 text-white rounded-2xl shadow-2xl border border-stone-700/60 p-2.5 px-4 flex items-center justify-between gap-3 backdrop-blur-md">
-            {/* 播放 / 暂停 */}
+        <aside
+          aria-label="迷你语音播放器"
+          className="fixed bottom-4 inset-x-0 mx-auto max-w-lg z-40 px-4 motion-safe:animate-in motion-safe:slide-in-from-bottom-5 duration-200"
+        >
+          <div className="bg-inverted/95 text-inverted-fg rounded-2xl shadow-2xl border border-inverted-line p-2.5 px-4 flex items-center justify-between gap-3 backdrop-blur-md">
             <button
+              type="button"
               onClick={isPlaying ? handlePause : handlePlay}
+              aria-label={isPlaying ? "暂停语音播报" : "继续语音播报"}
               className="w-8 h-8 rounded-full bg-amber-500 text-stone-950 flex items-center justify-center hover:bg-amber-400 transition-colors shrink-0 cursor-pointer shadow-xs"
-              title={isPlaying ? "暂停" : "继续"}
             >
               {isPlaying ? (
-                <Pause className="w-3.5 h-3.5 fill-current" />
+                <Pause className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
               ) : (
-                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                <Play
+                  className="w-3.5 h-3.5 fill-current ms-0.5"
+                  aria-hidden="true"
+                />
               )}
             </button>
 
-            {/* 当前朗读句与标题 */}
-            <div className="min-w-0 flex-1 cursor-pointer" onClick={scrollToTop}>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-stone-200 truncate">
+            <button
+              type="button"
+              onClick={scrollToTop}
+              className="min-w-0 flex-1 text-start cursor-pointer rounded-md"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-xs font-medium text-inverted-fg truncate">
                   {title || "智汇晨报"}
                 </span>
-                <span className="text-[10px] font-mono text-amber-400 shrink-0">
+                <span className="text-[11px] font-mono text-amber-400 shrink-0">
                   {currentSentenceIndex + 1}/{sentences.length}
                 </span>
-              </div>
-              <p className="text-[11px] text-stone-400 truncate mt-0.5">
+              </span>
+              <span className="block text-xs text-inverted-muted truncate mt-0.5">
                 {sentences[currentSentenceIndex] || "正在播放语音晨报..."}
-              </p>
-            </div>
+              </span>
+            </button>
 
-            {/* 右侧：语速与回顶操作 */}
             <div className="flex items-center gap-1.5 shrink-0">
               <button
+                type="button"
                 onClick={toggleRate}
-                className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-stone-800 text-stone-300 hover:text-white transition-colors cursor-pointer"
-                title="调节语速"
+                aria-label={`调节倍速，当前 ${rate} 倍速`}
+                className="font-mono text-xs px-2 py-1 rounded bg-white/10 text-inverted-fg hover:bg-white/20 transition-colors cursor-pointer"
               >
                 {rate}x
               </button>
               <button
+                type="button"
                 onClick={scrollToTop}
-                className="p-1 rounded-md text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
-                title="回到播放器卡片位置"
+                aria-label="回到主播放器位置"
+                className="min-h-[28px] min-w-[28px] p-1 rounded-md text-inverted-muted hover:text-inverted-fg hover:bg-white/10 transition-colors cursor-pointer inline-flex items-center justify-center"
               >
-                <ChevronUp className="w-4 h-4" />
+                <ChevronUp className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
           </div>
-        </div>
+        </aside>
       )}
     </>
   );

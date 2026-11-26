@@ -3,7 +3,15 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Settings, ArrowLeft, Sun, Moon, Newspaper, HelpCircle } from "lucide-react";
+import {
+  Settings,
+  ArrowLeft,
+  Sun,
+  Moon,
+  Newspaper,
+  HelpCircle,
+  Monitor,
+} from "lucide-react";
 import BrandLogo from "@/components/ui/BrandLogo";
 import { useTheme, ReadingTheme } from "@/components/ui/ThemeContext";
 import KeyboardShortcutsModal from "@/components/ui/KeyboardShortcutsModal";
@@ -13,7 +21,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const isSettings = pathname?.startsWith("/settings");
   const [today, setToday] = useState("");
-  const { theme, toggleTheme } = useTheme();
+  const { theme, systemPrefersDark, toggleTheme } = useTheme();
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   useEffect(() => {
@@ -21,7 +29,15 @@ export default function Navbar() {
       const now = new Date();
       const month = now.getMonth() + 1;
       const day = now.getDate();
-      const weekdays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+      const weekdays = [
+        "星期日",
+        "星期一",
+        "星期二",
+        "星期三",
+        "星期四",
+        "星期五",
+        "星期六",
+      ];
       const weekday = weekdays[now.getDay()];
       setToday(`${month} 月 ${day} 日 ${weekday}`);
     } catch {
@@ -32,18 +48,19 @@ export default function Navbar() {
   // 全局键盘监听 T 切换主题与 ? 唤起快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
+      const target = e.target as HTMLElement | null;
       if (
+        !target ||
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
         target.isContentEditable
       ) {
         return;
       }
 
-      // 弹窗（阅读器/确认框/帮助面板等）打开时让路，避免快捷键穿透到背景页面
+      // 原生模态 <dialog> 打开时让路，避免快捷键穿透
       if (isAnyModalOpen()) return;
-      // 不响应组合键与长按连发（如 Alt+T、按住 T 连续轮换主题）
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
 
       if (e.key === "t" || e.key === "T") {
@@ -59,17 +76,25 @@ export default function Navbar() {
 
   const renderThemeIcon = () => {
     switch (theme) {
+      case "system":
+        return (
+          <Monitor className="w-3.5 h-3.5 text-brand" aria-hidden="true" />
+        );
       case "paper":
-        return <Newspaper className="w-3.5 h-3.5 text-amber-800" />;
+        return (
+          <Newspaper className="w-3.5 h-3.5 text-brand" aria-hidden="true" />
+        );
       case "light":
-        return <Sun className="w-3.5 h-3.5 text-blue-600" />;
+        return <Sun className="w-3.5 h-3.5 text-brand" aria-hidden="true" />;
       case "midnight":
-        return <Moon className="w-3.5 h-3.5 text-amber-400" />;
+        return <Moon className="w-3.5 h-3.5 text-brand" aria-hidden="true" />;
     }
   };
 
   const getThemeLabel = (t: ReadingTheme) => {
     switch (t) {
+      case "system":
+        return systemPrefersDark ? "跟随系统(深)" : "跟随系统(浅)";
       case "paper":
         return "纸质晨报";
       case "light":
@@ -79,81 +104,95 @@ export default function Navbar() {
     }
   };
 
+  const themeAriaLabel = `切换阅读模式，当前为${getThemeLabel(theme)}（快捷键 T）`;
+
   return (
     <>
-      <header className="border-b border-[#eae6df] bg-white/95 backdrop-blur-md sticky top-0 z-40 transition-colors duration-200">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-          {/* Logo 与报刊版头 */}
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <BrandLogo
-              size={32}
-              className="w-8 h-8 rounded-lg shadow-2xs group-hover:scale-105 transition-transform shrink-0"
-            />
-            <div className="flex items-baseline gap-2">
-              <span className="font-serif-title text-lg font-bold text-stone-900 tracking-tight group-hover:text-amber-900 transition-colors">
-                Daily Briefing
-              </span>
-              <span className="hidden md:inline text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 border border-stone-200/60 tracking-wider">
-                晨刊 · 智汇版
-              </span>
-              {today && (
-                <span
-                  suppressHydrationWarning
-                  className="text-xs text-stone-400 font-normal hidden sm:inline"
-                >
-                  · {today}
+      <header className="site-header-sticky">
+        <div className="site-header-bar">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 min-h-[3.5rem] py-2 flex items-center justify-between gap-2">
+            {/* Logo 与报刊版头 */}
+            <Link
+              href="/"
+              className="flex items-center gap-2.5 group min-w-0 rounded-lg"
+            >
+              <BrandLogo
+                size={32}
+                decorative
+                className="w-8 h-8 rounded-lg shadow-2xs motion-safe:group-hover:scale-105 transition-transform shrink-0"
+              />
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="font-serif-title text-lg font-bold text-ink tracking-tight group-hover:text-brand transition-colors truncate">
+                  Daily Briefing
                 </span>
+                <span className="hidden md:inline text-[11px] uppercase font-mono px-1.5 py-0.5 rounded bg-subtle text-ink-2 border border-line tracking-wider shrink-0">
+                  晨刊 · 智汇版
+                </span>
+                {today && (
+                  <time
+                    suppressHydrationWarning
+                    className="text-xs text-ink-muted font-normal hidden sm:inline shrink-0"
+                  >
+                    · {today}
+                  </time>
+                )}
+              </div>
+            </Link>
+
+            {/* 右侧动作入口：主题切换 + 快捷键 + 设置/返回 */}
+            <nav
+              aria-label="主导航"
+              className="flex items-center gap-2 shrink-0"
+            >
+              <button
+                type="button"
+                onClick={toggleTheme}
+                aria-label={themeAriaLabel}
+                title={`当前模式: ${getThemeLabel(theme)} (按 T 快捷切换)`}
+                className="min-h-[32px] min-w-[32px] flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-line bg-card text-xs font-medium text-ink-2 hover:text-ink hover:border-line-strong hover:bg-subtle transition-colors shadow-2xs cursor-pointer"
+              >
+                {renderThemeIcon()}
+                <span className="hidden sm:inline text-xs font-sans">
+                  {getThemeLabel(theme)}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowShortcuts(true)}
+                aria-label="查看键盘快捷键"
+                title="查看键盘快捷键 (?)"
+                className="min-h-[32px] min-w-[32px] p-1.5 rounded-lg border border-line bg-card text-ink-muted hover:text-ink hover:border-line-strong hover:bg-subtle transition-colors shadow-2xs cursor-pointer hidden sm:inline-flex items-center justify-center"
+              >
+                <HelpCircle className="w-4 h-4" aria-hidden="true" />
+              </button>
+
+              {isSettings ? (
+                <Link
+                  href="/"
+                  className="min-h-[32px] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-action text-action-fg text-xs font-semibold hover:bg-action-hover transition-colors shadow-2xs"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>返回晨报</span>
+                </Link>
+              ) : (
+                <Link
+                  href="/settings"
+                  aria-label="设置中心"
+                  className="min-h-[32px] flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line bg-card text-xs font-medium text-ink-2 hover:text-ink hover:border-line-strong hover:bg-subtle transition-colors shadow-2xs"
+                >
+                  <Settings
+                    className="w-3.5 h-3.5 text-ink-muted"
+                    aria-hidden="true"
+                  />
+                  <span className="hidden sm:inline">设置</span>
+                </Link>
               )}
-            </div>
-          </Link>
-
-          {/* 右侧动作入口：主题切换 + 快捷键 + 设置/返回 */}
-          <div className="flex items-center gap-2">
-            {/* 主题切换按钮 */}
-            <button
-              onClick={toggleTheme}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#eae6df] bg-white text-xs font-medium text-stone-700 hover:border-stone-400 hover:bg-stone-50 transition-all shadow-2xs cursor-pointer"
-              title={`当前模式: ${getThemeLabel(theme)} (按 T 快捷切换)`}
-            >
-              {renderThemeIcon()}
-              <span className="hidden sm:inline text-[11px] font-sans">
-                {getThemeLabel(theme)}
-              </span>
-            </button>
-
-            {/* 快捷键帮助按钮 */}
-            <button
-              onClick={() => setShowShortcuts(true)}
-              className="p-1.5 rounded-lg border border-[#eae6df] bg-white text-stone-500 hover:text-stone-900 hover:border-stone-400 hover:bg-stone-50 transition-all shadow-2xs cursor-pointer hidden sm:flex items-center justify-center"
-              title="查看键盘快捷键 (?)"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-            </button>
-
-            {/* 设置或返回主页 */}
-            {isSettings ? (
-              <Link
-                href="/"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-medium hover:bg-amber-800 transition-colors shadow-2xs"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>返回晨报</span>
-              </Link>
-            ) : (
-              <Link
-                href="/settings"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#eae6df] bg-white text-xs font-medium text-stone-700 hover:text-stone-950 hover:border-stone-400 hover:bg-stone-50 transition-all shadow-2xs"
-                title="设置"
-              >
-                <Settings className="w-3.5 h-3.5 text-stone-500" />
-                <span className="hidden sm:inline">设置</span>
-              </Link>
-            )}
+            </nav>
           </div>
         </div>
       </header>
 
-      {/* 快捷键弹窗 */}
       <KeyboardShortcutsModal
         isOpen={showShortcuts}
         onClose={() => setShowShortcuts(false)}

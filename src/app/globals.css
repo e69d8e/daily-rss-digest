@@ -1,162 +1,1301 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@layer base {
-  :root {
-    --paper-bg: #faf8f5;
-    --paper-card: #ffffff;
-    --paper-card-subtle: #fcfbf9;
-    --paper-border: #eae6df;
-    --header-bg: rgba(250, 248, 245, 0.92);
-    --ink-primary: #1c1917;
-    --ink-secondary: #44403c;
-    --ink-muted: #78716c;
-    --accent: #b45309;
-    --accent-light: #fef3c7;
-    --accent-badge: rgba(180, 83, 9, 0.1);
+/* ==========================================================================
+   Top-level @property registrations (required for smooth interpolation)
+   ========================================================================== */
+@property --fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --arc-start {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@property --arc-end {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@property --progress-dash-animation {
+  syntax: "*";
+  inherits: false;
+  initial-value: , mwg-progress-dash 3s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   Tailwind v4 semantic color bridge -> CSS design tokens
+   ========================================================================== */
+@theme inline {
+  --color-page: var(--surface-page);
+  --color-card: var(--surface-card);
+  --color-subtle: var(--surface-subtle);
+  --color-muted-surface: var(--surface-muted);
+  --color-line: var(--border-default);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--ink-primary);
+  --color-ink-2: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-brand: var(--accent);
+  --color-brand-hover: var(--accent-hover);
+  --color-brand-soft: var(--accent-soft);
+  --color-brand-border: var(--accent-border);
+  --color-brand-ink: var(--accent-ink);
+  --color-action: var(--action-bg);
+  --color-action-fg: var(--action-fg);
+  --color-action-hover: var(--action-hover);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-border: var(--danger-border);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-border: var(--warning-border);
+  --color-inverted: var(--inverted-bg);
+  --color-inverted-fg: var(--inverted-fg);
+  --color-inverted-muted: var(--inverted-muted);
+  --color-inverted-line: var(--inverted-line);
+}
+
+/* ==========================================================================
+   Tier 1 & Tier 2 Design Tokens + Color Scheme Synchronization
+   Follows modern-web-guidance: dark-mode, dark-mode-toggle, color, css
+   ========================================================================== */
+:root {
+  /* Base declaration MUST stay `light dark` so CSS follows OS without JS */
+  color-scheme: light dark;
+  /* Opt-in globally for native intrinsic size transitions (height/block-size: auto) */
+  interpolate-size: allow-keywords;
+  --header-height: 3.75rem;
+  --color-scheme: light;
+
+  /* --- Tier 1: Paper Warm (default light) & Midnight Ink (default dark) --- */
+  --surface-page-light: #faf8f5;
+  --surface-page-dark: #111113;
+
+  --surface-card-light: #ffffff;
+  --surface-card-dark: #18181b;
+
+  --surface-subtle-light: #f6f4ef;
+  --surface-subtle-dark: #202024;
+
+  --surface-muted-light: #edeae3;
+  --surface-muted-dark: #27272a;
+
+  --header-bg-light: rgb(250 248 245 / 0.92);
+  --header-bg-dark: rgb(17 17 19 / 0.92);
+
+  --header-stuck-shadow-light: 0 4px 16px rgb(28 25 23 / 0.08);
+  --header-stuck-shadow-dark: 0 4px 18px rgb(0 0 0 / 0.45);
+
+  /* Borders meet >= 3:1 non-text contrast on interactive inputs/controls */
+  --border-default-light: #dfd9ce;
+  --border-default-dark: #303036;
+
+  --border-strong-light: #8a8279;
+  --border-strong-dark: #71717a;
+
+  /* Ink colors maintain >= 4.5:1 contrast against both page & card surfaces */
+  --ink-primary-light: #1c1917;
+  --ink-primary-dark: #f4f4f5;
+
+  --ink-secondary-light: #44403c;
+  --ink-secondary-dark: #d4d4d8;
+
+  --ink-muted-light: #635c56;
+  --ink-muted-dark: #a1a1aa;
+
+  /* Brand accent (>= 4.5:1 text contrast on card, clear indicator contrast in Safari) */
+  --accent-light: #9a3412;
+  --accent-dark: #f59e0b;
+
+  --accent-hover-light: #7c2d12;
+  --accent-hover-dark: #fbbf24;
+
+  --accent-soft-light: #fef3c7;
+  --accent-soft-dark: rgb(245 158 11 / 0.14);
+
+  --accent-border-light: #d97706;
+  --accent-border-dark: rgb(245 158 11 / 0.45);
+
+  --accent-ink-light: #78350f;
+  --accent-ink-dark: #fcd34d;
+
+  /* Primary action button */
+  --action-bg-light: #1c1917;
+  --action-bg-dark: #f59e0b;
+
+  --action-fg-light: #ffffff;
+  --action-fg-dark: #18181b;
+
+  --action-hover-light: #9a3412;
+  --action-hover-dark: #fbbf24;
+
+  /* Semantic feedback colors */
+  --danger-light: #be123c;
+  --danger-dark: #fb7185;
+  --danger-soft-light: #fff1f2;
+  --danger-soft-dark: rgb(190 18 60 / 0.16);
+  --danger-border-light: #fda4af;
+  --danger-border-dark: rgb(251 113 133 / 0.42);
+
+  --success-light: #047857;
+  --success-dark: #34d399;
+  --success-soft-light: #ecfdf5;
+  --success-soft-dark: rgb(4 120 87 / 0.18);
+  --success-border-light: #6ee7b7;
+  --success-border-dark: rgb(52 211 153 / 0.4);
+
+  --warning-light: #9a3412;
+  --warning-dark: #fbbf24;
+  --warning-soft-light: #fffbeb;
+  --warning-soft-dark: rgb(245 158 11 / 0.16);
+  --warning-border-light: #fcd34d;
+  --warning-border-dark: rgb(251 191 36 / 0.4);
+
+  /* Inverted insight / mini-player surface */
+  --inverted-bg-light: #1c1917;
+  --inverted-bg-dark: #09090b;
+  --inverted-fg-light: #f5f5f4;
+  --inverted-fg-dark: #f4f4f5;
+  --inverted-muted-light: #d6d3d1;
+  --inverted-muted-dark: #a1a1aa;
+  --inverted-line-light: #44403c;
+  --inverted-line-dark: #27272a;
+
+  /* Browser UI theming tokens */
+  --selection-bg-light: #fde68a;
+  --selection-bg-dark: rgb(245 158 11 / 0.35);
+  --selection-ink-light: #451a03;
+  --selection-ink-dark: #fef3c7;
+
+  --scrollbar-track-light: #f1ede6;
+  --scrollbar-track-dark: #18181b;
+  --scrollbar-thumb-light: #78716c;
+  --scrollbar-thumb-dark: #71717a;
+
+  --focus-ring-light: #9a3412;
+  --focus-ring-dark: #fbbf24;
+
+  /* --- Tier 2: Semantic tokens (default light fallback before light-dark()) --- */
+  --surface-page: var(--surface-page-light);
+  --surface-card: var(--surface-card-light);
+  --surface-subtle: var(--surface-subtle-light);
+  --surface-muted: var(--surface-muted-light);
+  --header-bg: var(--header-bg-light);
+  --header-stuck-shadow: var(--header-stuck-shadow-light);
+  --border-default: var(--border-default-light);
+  --border-strong: var(--border-strong-light);
+  --ink-primary: var(--ink-primary-light);
+  --ink-secondary: var(--ink-secondary-light);
+  --ink-muted: var(--ink-muted-light);
+  --accent: var(--accent-light);
+  --accent-hover: var(--accent-hover-light);
+  --accent-soft: var(--accent-soft-light);
+  --accent-border: var(--accent-border-light);
+  --accent-ink: var(--accent-ink-light);
+  --action-bg: var(--action-bg-light);
+  --action-fg: var(--action-fg-light);
+  --action-hover: var(--action-hover-light);
+  --danger: var(--danger-light);
+  --danger-soft: var(--danger-soft-light);
+  --danger-border: var(--danger-border-light);
+  --success: var(--success-light);
+  --success-soft: var(--success-soft-light);
+  --success-border: var(--success-border-light);
+  --warning: var(--warning-light);
+  --warning-soft: var(--warning-soft-light);
+  --warning-border: var(--warning-border-light);
+  --inverted-bg: var(--inverted-bg-light);
+  --inverted-fg: var(--inverted-fg-light);
+  --inverted-muted: var(--inverted-muted-light);
+  --inverted-line: var(--inverted-line-light);
+  --selection-bg: var(--selection-bg-light);
+  --selection-ink: var(--selection-ink-light);
+  --scrollbar-track: var(--scrollbar-track-light);
+  --scrollbar-thumb: var(--scrollbar-thumb-light);
+  --focus-ring: var(--focus-ring-light);
+
+  /* Fallback for browsers without light-dark() when OS prefers dark */
+  @media (prefers-color-scheme: dark) {
+    --color-scheme: dark;
+    --surface-page: var(--surface-page-dark);
+    --surface-card: var(--surface-card-dark);
+    --surface-subtle: var(--surface-subtle-dark);
+    --surface-muted: var(--surface-muted-dark);
+    --header-bg: var(--header-bg-dark);
+    --header-stuck-shadow: var(--header-stuck-shadow-dark);
+    --border-default: var(--border-default-dark);
+    --border-strong: var(--border-strong-dark);
+    --ink-primary: var(--ink-primary-dark);
+    --ink-secondary: var(--ink-secondary-dark);
+    --ink-muted: var(--ink-muted-dark);
+    --accent: var(--accent-dark);
+    --accent-hover: var(--accent-hover-dark);
+    --accent-soft: var(--accent-soft-dark);
+    --accent-border: var(--accent-border-dark);
+    --accent-ink: var(--accent-ink-dark);
+    --action-bg: var(--action-bg-dark);
+    --action-fg: var(--action-fg-dark);
+    --action-hover: var(--action-hover-dark);
+    --danger: var(--danger-dark);
+    --danger-soft: var(--danger-soft-dark);
+    --danger-border: var(--danger-border-dark);
+    --success: var(--success-dark);
+    --success-soft: var(--success-soft-dark);
+    --success-border: var(--success-border-dark);
+    --warning: var(--warning-dark);
+    --warning-soft: var(--warning-soft-dark);
+    --warning-border: var(--warning-border-dark);
+    --inverted-bg: var(--inverted-bg-dark);
+    --inverted-fg: var(--inverted-fg-dark);
+    --inverted-muted: var(--inverted-muted-dark);
+    --inverted-line: var(--inverted-line-dark);
+    --selection-bg: var(--selection-bg-dark);
+    --selection-ink: var(--selection-ink-dark);
+    --scrollbar-track: var(--scrollbar-track-dark);
+    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+    --focus-ring: var(--focus-ring-dark);
   }
 
-  /* 1. 经典报刊纸质色 (Paper Warm) */
-  [data-theme="paper"] {
-    --paper-bg: #faf8f5;
-    --paper-card: #ffffff;
-    --paper-card-subtle: #fcfbf9;
-    --paper-border: #eae6df;
-    --header-bg: rgba(250, 248, 245, 0.92);
-    --ink-primary: #1c1917;
-    --ink-secondary: #44403c;
-    --ink-muted: #78716c;
-    --accent: #b45309;
-    --accent-light: #fef3c7;
-    --accent-badge: rgba(180, 83, 9, 0.1);
+  /* Reflect <meta name="color-scheme"> override back onto CSS color-scheme */
+  &:has(> head > meta[name="color-scheme"][content="dark"]) {
+    color-scheme: dark;
+    --color-scheme: dark;
   }
 
-  /* 2. 晨曦极简明亮 (Clean Light) */
-  [data-theme="light"] {
-    --paper-bg: #f8fafc;
-    --paper-card: #ffffff;
-    --paper-card-subtle: #f1f5f9;
-    --paper-border: #e2e8f0;
-    --header-bg: rgba(255, 255, 255, 0.92);
-    --ink-primary: #0f172a;
-    --ink-secondary: #334155;
-    --ink-muted: #64748b;
-    --accent: #2563eb;
-    --accent-light: #dbeafe;
-    --accent-badge: rgba(37, 99, 235, 0.1);
+  &:has(> head > meta[name="color-scheme"][content="light"]) {
+    color-scheme: light;
+    --color-scheme: light;
   }
 
-  /* 3. 暗夜静读沉浸 (Midnight Ink) */
-  [data-theme="midnight"] {
-    --paper-bg: #111113;
-    --paper-card: #18181b;
-    --paper-card-subtle: #202024;
-    --paper-border: #2e2e33;
-    --header-bg: rgba(17, 17, 19, 0.92);
-    --ink-primary: #f4f4f5;
-    --ink-secondary: #d4d4d8;
-    --ink-muted: #a1a1aa;
-    --accent: #f59e0b;
-    --accent-light: #292524;
-    --accent-badge: rgba(245, 158, 11, 0.15);
+  /* Clean Light theme palette override (when light scheme is active with data-theme="light") */
+  &[data-theme="light"] {
+    --surface-page-light: #f8fafc;
+    --surface-card-light: #ffffff;
+    --surface-subtle-light: #f1f5f9;
+    --surface-muted-light: #e2e8f0;
+    --header-bg-light: rgb(255 255 255 / 0.92);
+    --border-default-light: #cbd5e1;
+    --border-strong-light: #64748b;
+    --ink-primary-light: #0f172a;
+    --ink-secondary-light: #334155;
+    --ink-muted-light: #475569;
+    --accent-light: #1d4ed8;
+    --accent-hover-light: #1e40af;
+    --accent-soft-light: #dbeafe;
+    --accent-border-light: #3b82f6;
+    --accent-ink-light: #1e3a8a;
+    --action-bg-light: #0f172a;
+    --action-hover-light: #1d4ed8;
+    --selection-bg-light: #bfdbfe;
+    --selection-ink-light: #1e3a8a;
+    --scrollbar-track-light: #f1f5f9;
+    --scrollbar-thumb-light: #64748b;
+    --focus-ring-light: #1d4ed8;
   }
 
-  body {
-    background-color: var(--paper-bg);
-    color: var(--ink-primary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    -webkit-font-smoothing: antialiased;
-    transition: background-color 0.2s ease, color 0.2s ease;
+  /* Explicit manual override fallback for browsers without light-dark() */
+  &[data-theme="paper"],
+  &[data-theme="light"] {
+    --surface-page: var(--surface-page-light);
+    --surface-card: var(--surface-card-light);
+    --surface-subtle: var(--surface-subtle-light);
+    --surface-muted: var(--surface-muted-light);
+    --header-bg: var(--header-bg-light);
+    --header-stuck-shadow: var(--header-stuck-shadow-light);
+    --border-default: var(--border-default-light);
+    --border-strong: var(--border-strong-light);
+    --ink-primary: var(--ink-primary-light);
+    --ink-secondary: var(--ink-secondary-light);
+    --ink-muted: var(--ink-muted-light);
+    --accent: var(--accent-light);
+    --accent-hover: var(--accent-hover-light);
+    --accent-soft: var(--accent-soft-light);
+    --accent-border: var(--accent-border-light);
+    --accent-ink: var(--accent-ink-light);
+    --action-bg: var(--action-bg-light);
+    --action-fg: var(--action-fg-light);
+    --action-hover: var(--action-hover-light);
+    --danger: var(--danger-light);
+    --danger-soft: var(--danger-soft-light);
+    --danger-border: var(--danger-border-light);
+    --success: var(--success-light);
+    --success-soft: var(--success-soft-light);
+    --success-border: var(--success-border-light);
+    --warning: var(--warning-light);
+    --warning-soft: var(--warning-soft-light);
+    --warning-border: var(--warning-border-light);
+    --inverted-bg: var(--inverted-bg-light);
+    --inverted-fg: var(--inverted-fg-light);
+    --inverted-muted: var(--inverted-muted-light);
+    --inverted-line: var(--inverted-line-light);
+    --selection-bg: var(--selection-bg-light);
+    --selection-ink: var(--selection-ink-light);
+    --scrollbar-track: var(--scrollbar-track-light);
+    --scrollbar-thumb: var(--scrollbar-thumb-light);
+    --focus-ring: var(--focus-ring-light);
+  }
+
+  &[data-theme="midnight"] {
+    --surface-page: var(--surface-page-dark);
+    --surface-card: var(--surface-card-dark);
+    --surface-subtle: var(--surface-subtle-dark);
+    --surface-muted: var(--surface-muted-dark);
+    --header-bg: var(--header-bg-dark);
+    --header-stuck-shadow: var(--header-stuck-shadow-dark);
+    --border-default: var(--border-default-dark);
+    --border-strong: var(--border-strong-dark);
+    --ink-primary: var(--ink-primary-dark);
+    --ink-secondary: var(--ink-secondary-dark);
+    --ink-muted: var(--ink-muted-dark);
+    --accent: var(--accent-dark);
+    --accent-hover: var(--accent-hover-dark);
+    --accent-soft: var(--accent-soft-dark);
+    --accent-border: var(--accent-border-dark);
+    --accent-ink: var(--accent-ink-dark);
+    --action-bg: var(--action-bg-dark);
+    --action-fg: var(--action-fg-dark);
+    --action-hover: var(--action-hover-dark);
+    --danger: var(--danger-dark);
+    --danger-soft: var(--danger-soft-dark);
+    --danger-border: var(--danger-border-dark);
+    --success: var(--success-dark);
+    --success-soft: var(--success-soft-dark);
+    --success-border: var(--success-border-dark);
+    --warning: var(--warning-dark);
+    --warning-soft: var(--warning-soft-dark);
+    --warning-border: var(--warning-border-dark);
+    --inverted-bg: var(--inverted-bg-dark);
+    --inverted-fg: var(--inverted-fg-dark);
+    --inverted-muted: var(--inverted-muted-dark);
+    --inverted-line: var(--inverted-line-dark);
+    --selection-bg: var(--selection-bg-dark);
+    --selection-ink: var(--selection-ink-dark);
+    --scrollbar-track: var(--scrollbar-track-dark);
+    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+    --focus-ring: var(--focus-ring-dark);
+  }
+
+  /* Modern browsers: reactive light-dark() driven automatically by color-scheme */
+  @supports (color: light-dark(white, black)) {
+    --surface-page: light-dark(var(--surface-page-light), var(--surface-page-dark));
+    --surface-card: light-dark(var(--surface-card-light), var(--surface-card-dark));
+    --surface-subtle: light-dark(var(--surface-subtle-light), var(--surface-subtle-dark));
+    --surface-muted: light-dark(var(--surface-muted-light), var(--surface-muted-dark));
+    --header-bg: light-dark(var(--header-bg-light), var(--header-bg-dark));
+    --border-default: light-dark(var(--border-default-light), var(--border-default-dark));
+    --border-strong: light-dark(var(--border-strong-light), var(--border-strong-dark));
+    --ink-primary: light-dark(var(--ink-primary-light), var(--ink-primary-dark));
+    --ink-secondary: light-dark(var(--ink-secondary-light), var(--ink-secondary-dark));
+    --ink-muted: light-dark(var(--ink-muted-light), var(--ink-muted-dark));
+    --accent: light-dark(var(--accent-light), var(--accent-dark));
+    --accent-hover: light-dark(var(--accent-hover-light), var(--accent-hover-dark));
+    --accent-soft: light-dark(var(--accent-soft-light), var(--accent-soft-dark));
+    --accent-border: light-dark(var(--accent-border-light), var(--accent-border-dark));
+    --accent-ink: light-dark(var(--accent-ink-light), var(--accent-ink-dark));
+    --action-bg: light-dark(var(--action-bg-light), var(--action-bg-dark));
+    --action-fg: light-dark(var(--action-fg-light), var(--action-fg-dark));
+    --action-hover: light-dark(var(--action-hover-light), var(--action-hover-dark));
+    --danger: light-dark(var(--danger-light), var(--danger-dark));
+    --danger-soft: light-dark(var(--danger-soft-light), var(--danger-soft-dark));
+    --danger-border: light-dark(var(--danger-border-light), var(--danger-border-dark));
+    --success: light-dark(var(--success-light), var(--success-dark));
+    --success-soft: light-dark(var(--success-soft-light), var(--success-soft-dark));
+    --success-border: light-dark(var(--success-border-light), var(--success-border-dark));
+    --warning: light-dark(var(--warning-light), var(--warning-dark));
+    --warning-soft: light-dark(var(--warning-soft-light), var(--warning-soft-dark));
+    --warning-border: light-dark(var(--warning-border-light), var(--warning-border-dark));
+    --inverted-bg: light-dark(var(--inverted-bg-light), var(--inverted-bg-dark));
+    --inverted-fg: light-dark(var(--inverted-fg-light), var(--inverted-fg-dark));
+    --inverted-muted: light-dark(var(--inverted-muted-light), var(--inverted-muted-dark));
+    --inverted-line: light-dark(var(--inverted-line-light), var(--inverted-line-dark));
+    --selection-bg: light-dark(var(--selection-bg-light), var(--selection-bg-dark));
+    --selection-ink: light-dark(var(--selection-ink-light), var(--selection-ink-dark));
+    --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+    --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+    --focus-ring: light-dark(var(--focus-ring-light), var(--focus-ring-dark));
+  }
+
+  /* Forced Colors Mode (Windows High Contrast) system token fallback */
+  @media (forced-colors: active) {
+    --border-default: CanvasText;
+    --border-strong: CanvasText;
+    --accent: Highlight;
+    --focus-ring: Highlight;
   }
 }
 
-/* 报刊感细腻衬线标题与排印微调 */
+/* ==========================================================================
+   Base Layer: Browser UI Theming, Typography, Focus, Scrollbar
+   ========================================================================== */
+@layer base {
+  html {
+    /* Prevent sticky header from obscuring focused elements (WCAG 2.4.11) */
+    scroll-padding-top: var(--header-height);
+    accent-color: var(--accent);
+    /* Do NOT animate or transition scrollbar-color (WebKit flicker bug) */
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  body {
+    background-color: var(--surface-page);
+    color: var(--ink-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    line-height: 1.6;
+    text-align: start;
+    overflow-wrap: break-word;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  ::selection {
+    background-color: var(--selection-bg);
+    color: var(--selection-ink);
+  }
+
+  /* Balanced wrapping for short heading blocks only (never global *) */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  /* Unified high-contrast keyboard focus indicator */
+  :where(a:any-link, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  @media (pointer: coarse) {
+    :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, button.mwg-touch-target) {
+      min-block-size: 44px;
+    }
+  }
+}
+
+/* Legacy WebKit scrollbar fallback gated strictly behind @supports not */
+@supports not (scrollbar-color: auto) {
+  html {
+    scrollbar-width: auto;
+  }
+  html::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  html::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+  html::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 999px;
+  }
+}
+
+/* ==========================================================================
+   Accessibility & Editorial Utilities
+   ========================================================================== */
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+.skip-link:focus-visible {
+  position: fixed;
+  inset-block-start: 0.75rem;
+  inset-inline-start: 0.75rem;
+  z-index: 100;
+  padding: 0.625rem 1rem;
+  border-radius: 0.625rem;
+  background-color: var(--action-bg);
+  color: var(--action-fg);
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+/* 报刊衬线标题与流畅响应式字号（max / min = 1.5 <= 2.5，兼容 200% 缩放） */
 .font-serif-title {
   font-family: "Charter", "Bitstream Charter", "Sitka Text", Georgia, Cambria, "Times New Roman", "Songti SC", "SimSun", serif;
 }
 
-/* 隐藏滚动条但保留平滑滚动 */
+.editorial-title {
+  font-size: clamp(1.25rem, 1rem + 1.25vw, 1.875rem);
+  line-height: 1.3;
+}
+
+.prose-pretty p,
+.prose-pretty blockquote,
+.prose-pretty li {
+  text-wrap: pretty;
+}
+
+/* Below-the-fold deferred rendering (strictly for off-screen cards, never hero) */
+.mwg-deferred {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 240px;
+}
+
+/* 隐藏滚动条（必须与 .mwg-fade-scroller 视觉滚动提示配对使用） */
+.no-scrollbar {
+  scrollbar-width: none;
+}
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+
+/* 排版下划线微动效（遵循减弱动态偏好） */
+.hover-underline-animation {
+  display: inline;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.2em;
+  text-decoration-skip-ink: auto;
+  transition: text-decoration-color 0.2s ease-out;
+}
+.hover-underline-animation:hover,
+button:hover .hover-underline-animation,
+button:focus-visible .hover-underline-animation {
+  text-decoration-color: currentColor;
 }
 
-/* 优雅排版下划线微动效 */
-.hover-underline-animation {
+/* ==========================================================================
+   State-Aware Sticky Header (state-aware-sticky-headers)
+   ========================================================================== */
+.site-header-sticky {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 40;
+  container-type: scroll-state;
+  container-name: site-header;
+}
+
+.site-header-bar {
+  background-color: var(--header-bg);
+  border-block-end: 1px solid var(--border-default);
+  backdrop-filter: blur(12px);
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+@container site-header scroll-state(stuck: top) {
+  .site-header-bar {
+    box-shadow: var(--header-stuck-shadow);
+    border-block-end-color: var(--border-strong);
+  }
+}
+
+/* ==========================================================================
+   Native <dialog> Modal: Scroll Containment + Top-Layer Entry/Exit
+   Follows: dialog, prevent-page-scroll-under-modal-dialog, animate-to-from-top-layer
+   ========================================================================== */
+dialog.mwg-dialog {
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  background-color: var(--surface-card);
+  color: var(--ink-primary);
+  opacity: 0;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.2s;
+  transition-timing-function: ease-out;
+  /* MUST be declared separately after transition so older browsers don't drop it */
+  transition-behavior: allow-discrete;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transform: scale(0.96);
+  }
+}
+
+dialog.mwg-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.mwg-dialog:modal {
+  /* MANDATORY: Prevent scroll chaining inside dialog to underlying page */
+  overscroll-behavior: contain;
+}
+
+dialog.mwg-dialog::backdrop {
+  /* MANDATORY: Make ::backdrop a scroll container so overscroll-behavior applies */
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: rgb(0 0 0 / 0);
+  backdrop-filter: blur(0px);
+  transition-property: background-color, backdrop-filter, display, overlay;
+  transition-duration: 0.2s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+/* Open state with :not([data-closing]) so Firefox/Safari exit fallback animates cleanly */
+:is(dialog.mwg-dialog[open]):where(:not([data-closing])) {
+  opacity: 1;
+
+  @starting-style {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    transform: scale(1);
+
+    @starting-style {
+      transform: scale(0.96);
+    }
+  }
+
+  &::backdrop {
+    background-color: rgb(15 15 17 / 0.52);
+    backdrop-filter: blur(3px);
+
+    @starting-style {
+      background-color: rgb(0 0 0 / 0);
+      backdrop-filter: blur(0px);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.mwg-dialog,
+  dialog.mwg-dialog::backdrop {
+    transition-duration: 0.1s;
+  }
+}
+
+/* ==========================================================================
+   Top-Layer Manual Popover Toasts (persistent-toast-notifications)
+   ========================================================================== */
+[popover].mwg-toast-region {
+  position: fixed;
+  inset-block-start: 1rem;
+  inset-inline-end: 1rem;
+  inset-block-end: auto;
+  inset-inline-start: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  max-inline-size: min(24rem, calc(100vw - 2rem));
+  inline-size: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transition-property: opacity, display, overlay;
+  transition-duration: 0.2s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+[popover].mwg-toast-region:is(:popover-open, .\:popover-open) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  opacity: 1;
+
+  @starting-style {
+    opacity: 0;
+  }
+}
+
+/* Hide popovers before @oddbird/popover-polyfill loads in unsupported browsers */
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
+}
+
+.mwg-toast-item {
+  pointer-events: auto;
+  opacity: 1;
+  transition-property: opacity, transform;
+  transition-duration: 0.2s;
+  transition-timing-function: ease-out;
+
+  @starting-style {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    transform: translateY(0);
+
+    @starting-style {
+      transform: translateY(-0.5rem);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [popover].mwg-toast-region,
+  .mwg-toast-item {
+    transition-duration: 0.1s;
+  }
+}
+
+/* ==========================================================================
+   Scroll-Driven Reading Progress Bar (scroll-progress-indicator)
+   ========================================================================== */
+.mwg-reader-shell {
+  timeline-scope: --article-scroll;
+}
+
+.mwg-reader-scroll {
+  scroll-timeline: --article-scroll block;
+}
+
+.mwg-reading-progress-fill {
+  inline-size: 100%;
+  block-size: 100%;
+  background-color: var(--accent);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: scroll()) {
+    @keyframes mwg-grow-progress {
+      from {
+        transform: scaleX(0);
+      }
+      to {
+        transform: scaleX(1);
+      }
+    }
+
+    .mwg-reading-progress-fill {
+      animation: mwg-grow-progress auto linear both;
+      /* Declared AFTER animation shorthand so timeline isn't reset */
+      animation-timeline: --article-scroll;
+    }
+  }
+}
+
+/* ==========================================================================
+   Horizontal Fading Scroll Affordance Hints (scrollability-affordance-hints + tabs)
+   ========================================================================== */
+.mwg-fade-scroller {
+  --fade-size: 2.25rem;
+  --fade-dir: right;
+  --fade-start-pos: 0;
+  --fade-end-pos: 100%;
+  overflow-x: auto;
+  scroll-snap-type: inline proximity;
+  scroll-padding-inline: var(--fade-size);
+  mask:
+    linear-gradient(black, black) no-clip subtract,
+    linear-gradient(to var(--fade-dir), black, transparent) var(--fade-start-pos) 0 / var(--fade-start) 100% no-repeat no-clip,
+    linear-gradient(to var(--fade-dir), transparent, black) var(--fade-end-pos) 0 / var(--fade-end) 100% no-repeat no-clip;
+
+  &:dir(rtl) {
+    --fade-dir: left;
+    --fade-start-pos: 100%;
+    --fade-end-pos: 0;
+  }
+}
+
+@supports (animation-timeline: scroll(self inline)) {
+  .mwg-fade-scroller {
+    animation: mwg-reveal-fade-start linear both, mwg-hide-fade-end linear both;
+    animation-timeline: scroll(self inline);
+    animation-range: 0 var(--fade-size), calc(100% - var(--fade-size)) 100%;
+  }
+
+  @keyframes mwg-reveal-fade-start {
+    to {
+      --fade-start: var(--fade-size);
+    }
+  }
+
+  @keyframes mwg-hide-fade-end {
+    from {
+      --fade-end: var(--fade-size);
+    }
+  }
+}
+
+/* IntersectionObserver fallback classes when scroll-driven animations are unsupported */
+@supports not (animation-timeline: scroll(self inline)) {
+  .mwg-fade-scroller {
+    transition: --fade-start 0.2s, --fade-end 0.2s;
+
+    &.more-start {
+      --fade-start: var(--fade-size);
+    }
+
+    &.more-end {
+      --fade-end: var(--fade-size);
+    }
+  }
+}
+
+/* ==========================================================================
+   Vertical Scroll Shadows inside Modals (scrollability-affordance-hints)
+   ========================================================================== */
+.mwg-scroll-shadows {
+  overflow-y: auto;
+  container-type: scroll-state;
+}
+
+.mwg-scroll-shadows::before,
+.mwg-scroll-shadows::after {
+  content: "";
+  display: block;
+  position: sticky;
+  block-size: 0.75rem;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.mwg-scroll-shadows::before {
+  inset-block-start: 0;
+  margin-block-end: -0.75rem;
+  background: radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 0.14), transparent);
+}
+
+.mwg-scroll-shadows::after {
+  inset-block-end: 0;
+  margin-block-start: -0.75rem;
+  background: radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 0.14), transparent);
+}
+
+@container scroll-state(scrollable: block-start) {
+  .mwg-scroll-shadows::before {
+    opacity: 1;
+  }
+}
+
+@container scroll-state(scrollable: block-end) {
+  .mwg-scroll-shadows::after {
+    opacity: 1;
+  }
+}
+
+@supports not (container-type: scroll-state) {
+  @supports (animation-timeline: scroll()) {
+    .mwg-scroll-shadows::before,
+    .mwg-scroll-shadows::after {
+      animation: mwg-show-shadow linear both;
+      animation-timeline: scroll();
+    }
+
+    .mwg-scroll-shadows::before {
+      animation-range: 0 2rem;
+    }
+
+    .mwg-scroll-shadows::after {
+      animation-direction: reverse;
+      animation-range: calc(100% - 2rem) 100%;
+    }
+
+    @keyframes mwg-show-shadow {
+      to {
+        opacity: 1;
+      }
+    }
+  }
+}
+
+/* ==========================================================================
+   Accessible Tabs indicator (tabs — border-based for Forced Colors compatibility)
+   ========================================================================== */
+.mwg-tab {
+  position: relative;
+  flex: none;
+  scroll-snap-align: start;
+}
+
+.mwg-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-block-end: 2px solid var(--accent);
+}
+
+/* ==========================================================================
+   Copy Button & External Live-Region Tip (copy-button)
+   ========================================================================== */
+.mwg-copy {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.mwg-copy-tip {
+  position: absolute;
+  inset-block-end: calc(100% + 0.375rem);
+  inset-inline-end: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background-color: var(--inverted-bg);
+  color: var(--inverted-fg);
+  border: 1px solid var(--inverted-line);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.18);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+}
+
+.mwg-copy-tip-center {
+  inset-inline-end: auto;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+}
+
+.mwg-copy-tip[data-visible] {
+  opacity: 1;
+}
+
+.mwg-copy-tip[data-state="failed"] {
+  background-color: var(--danger);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+/* ==========================================================================
+   Native Switch Control (switch)
+   ========================================================================== */
+input[type="checkbox"][switch] {
+  accent-color: var(--accent);
+  margin: 0;
+  cursor: pointer;
+}
+
+input[type="checkbox"][switch].switch {
+  --switch-accent: var(--accent);
+  --switch-background: var(--border-strong);
+  --switch-thumb: #ffffff;
+  top: 0;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+input[type="checkbox"][switch]:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+/* ==========================================================================
+   Brand-Consistent Range Slider (slider)
+   Separate WebKit and Firefox pseudo-element blocks (never comma-grouped)
+   ========================================================================== */
+input[type="range"].mwg-slider {
+  --slider-track-size: 0.45rem;
+  --slider-thumb-size: 1.15rem;
+  --slider-track-radius: 999px;
+  --slider-thumb-radius: 50%;
+  --slider-track-color: var(--surface-muted);
+  --slider-fill-color: var(--accent);
+  --slider-thumb-color: var(--accent);
+  --slider-direction: to right;
+  --attr-min: attr(min type(<number>), 0);
+  --attr-max: attr(max type(<number>), 1);
+  --control-value: attr(value type(<number>), 0.4);
+  --slider-progress: calc(
+    progress(var(--control-value), var(--attr-min), var(--attr-max)) * 100%
+  );
+
+  appearance: none;
+  inline-size: 100%;
+  block-size: 2.5rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+
+  &:dir(rtl) {
+    --slider-direction: to left;
+  }
+}
+
+@supports not (opacity: progress(1, 0, 100)) {
+  input[type="range"].mwg-slider {
+    --slider-progress: calc(
+      (var(--control-value) - var(--attr-min)) /
+      (var(--attr-max) - var(--attr-min)) * 100%
+    );
+  }
+}
+
+input[type="range"].mwg-slider::-webkit-slider-runnable-track {
+  block-size: var(--slider-track-size);
+  border: 1px solid var(--border-default);
+  border-radius: var(--slider-track-radius);
+  background: linear-gradient(
+    var(--slider-direction),
+    var(--slider-fill-color) var(--slider-progress),
+    var(--slider-track-color) var(--slider-progress)
+  );
+}
+
+input[type="range"].mwg-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  inline-size: var(--slider-thumb-size);
+  block-size: var(--slider-thumb-size);
+  margin-block-start: calc(
+    (var(--slider-track-size) - var(--slider-thumb-size)) / 2 - 1px
+  );
+  border: 2px solid var(--surface-card);
+  border-radius: var(--slider-thumb-radius);
+  background: var(--slider-thumb-color);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+}
+
+input[type="range"].mwg-slider::-moz-range-track {
+  block-size: var(--slider-track-size);
+  border: 1px solid var(--border-default);
+  border-radius: var(--slider-track-radius);
+  background: var(--slider-track-color);
+}
+
+input[type="range"].mwg-slider::-moz-range-progress {
+  block-size: var(--slider-track-size);
+  border-radius: var(--slider-track-radius);
+  background: var(--slider-fill-color);
+}
+
+input[type="range"].mwg-slider::-moz-range-thumb {
+  inline-size: var(--slider-thumb-size);
+  block-size: var(--slider-thumb-size);
+  border: 2px solid var(--surface-card);
+  border-radius: var(--slider-thumb-radius);
+  background: var(--slider-thumb-color);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+}
+
+input[type="range"].mwg-slider:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+}
+
+/* ==========================================================================
+   Auto-Sizing Textarea (form-fields-automatically-fit-contents)
+   ========================================================================== */
+textarea.mwg-autogrow {
+  field-sizing: content;
+  inline-size: 100%;
+  block-size: auto;
+  min-block-size: 3lh;
+  max-block-size: 12lh;
+  resize: vertical;
+}
+
+/* ==========================================================================
+   After-Interaction Validation Feedback (validate-input-after-interaction)
+   ========================================================================== */
+:is(.mwg-field-control:not([type="range"]):user-invalid, .mwg-field-control[aria-invalid="true"]) {
+  border-color: var(--danger);
+  background-color: var(--danger-soft);
+}
+
+.mwg-field-error {
+  display: none;
+  color: var(--danger);
+  font-size: 0.75rem;
+  margin-block-start: 0.375rem;
+}
+
+:is(.mwg-field-control:not([type="range"]):user-invalid, .mwg-field-control[aria-invalid="true"]) ~ .mwg-field-error {
+  display: flex;
+}
+
+/* ==========================================================================
+   Native <progress> Bar (progress)
+   ========================================================================== */
+progress.mwg-progress {
+  appearance: none;
+  border: 0 solid;
+  overflow: clip;
+  inline-size: 100%;
+  block-size: 0.375rem;
+  border-radius: 999px;
+  background-color: var(--surface-muted);
+  display: block;
+}
+
+progress.mwg-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+progress.mwg-progress::-webkit-progress-value {
+  background-color: var(--accent);
+  border-radius: 999px;
+  transition: inline-size 0.3s ease;
+}
+
+progress.mwg-progress::-moz-progress-bar {
+  background-color: var(--accent);
+  border-radius: 999px;
+  transition: inline-size 0.3s ease;
+}
+
+/* ==========================================================================
+   Native Indeterminate <progress> Loading Spinner (spinner)
+   ========================================================================== */
+progress.mwg-spinner:indeterminate::-webkit-progress-bar {
+  display: none;
+  background: none;
+}
+
+progress.mwg-spinner:indeterminate::-webkit-progress-value {
+  display: none;
+  background: none;
+}
+
+progress.mwg-spinner:indeterminate::-moz-progress-bar {
+  display: none;
+  background: none;
+}
+
+progress.mwg-spinner:indeterminate {
+  --_from: calc(90deg + var(--arc-start, 0deg));
+  --_to: calc(90deg + var(--arc-end, 158deg));
+  --size: 1.75rem;
+  --thickness: 2.5px;
+  --spinner-color: var(--accent);
+  --track-color: var(--border-default);
+  --spinner-duration: 1.4s;
+  --_used-spinner-duration: var(--spinner-duration);
+
   display: inline-block;
   position: relative;
-}
-.hover-underline-animation::after {
-  content: '';
-  position: absolute;
-  width: 100%;
-  transform: scaleX(0);
-  height: 1.5px;
-  bottom: -1px;
-  left: 0;
-  background-color: currentColor;
-  transform-origin: bottom right;
-  transition: transform 0.25s ease-out;
-}
-.hover-underline-animation:hover::after {
-  transform: scaleX(1);
-  transform-origin: bottom left;
+  inline-size: var(--size);
+  block-size: var(--size);
+  border-radius: 50%;
+  appearance: none;
+  background: conic-gradient(
+      from var(--_from),
+      var(--spinner-color) calc(var(--_to) - var(--_from)),
+      transparent 0
+    )
+    var(--track-color);
+
+  @supports (background-clip: border-area) {
+    background-clip: border-area;
+    border: var(--thickness) solid transparent;
+    background-origin: border-box;
+  }
+
+  @supports not (background-clip: border-area) {
+    --clip-boundary: calc(100% - var(--thickness));
+    mask-image: radial-gradient(
+      farthest-side,
+      transparent var(--clip-boundary),
+      black var(--clip-boundary)
+    );
+    border: 0;
+  }
+
+  @media (forced-colors: active) {
+    forced-color-adjust: none;
+    --spinner-color: CanvasText;
+    --track-color: Canvas;
+  }
+
+  animation:
+    mwg-progress-spin var(--_used-spinner-duration) linear infinite
+    var(--progress-dash-animation, );
 }
 
-/* 暗色模式下卡片与边框细节全局适配 */
-[data-theme="midnight"] header {
-  background-color: rgba(17, 17, 19, 0.95) !important;
-  border-color: #27272a !important;
+@keyframes mwg-progress-spin {
+  to {
+    rotate: 1turn;
+  }
 }
-[data-theme="midnight"] .bg-white {
-  background-color: #18181b !important;
+
+@keyframes mwg-progress-dash {
+  from {
+    --arc-start: 0deg;
+    --arc-end: 10deg;
+  }
+  50% {
+    --arc-start: 100deg;
+    --arc-end: 350deg;
+  }
+  to {
+    --arc-start: 360deg;
+    --arc-end: 370deg;
+  }
 }
-[data-theme="midnight"] .bg-white\/95,
-[data-theme="midnight"] .bg-white\/70 {
-  background-color: rgba(24, 24, 27, 0.95) !important;
+
+@media (prefers-reduced-motion: reduce) {
+  progress.mwg-spinner:indeterminate {
+    --_used-spinner-duration: 6s;
+    --progress-dash-animation: ;
+    --arc-end: 158deg;
+  }
 }
-[data-theme="midnight"] .border-\[\#eae6df\] {
-  border-color: #27272a !important;
+
+/* ==========================================================================
+   Intrinsic-Size Animated Disclosure & Native <details> (animate-to-intrinsic-sizes)
+   ========================================================================== */
+.mwg-expandable {
+  block-size: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: block-size 0.3s ease-out, opacity 0.2s ease-out;
 }
-[data-theme="midnight"] .text-stone-900,
-[data-theme="midnight"] .text-stone-950 {
-  color: #f4f4f5 !important;
+
+.mwg-expandable[data-open="true"] {
+  block-size: auto;
+  opacity: 1;
 }
-[data-theme="midnight"] .text-stone-800 {
-  color: #e4e4e7 !important;
+
+details.mwg-details::details-content {
+  block-size: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition-property: block-size, opacity, content-visibility;
+  transition-duration: 0.25s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
 }
-[data-theme="midnight"] .text-stone-700 {
-  color: #d4d4d8 !important;
+
+details.mwg-details[open]::details-content {
+  block-size: auto;
+  opacity: 1;
 }
-[data-theme="midnight"] .text-stone-600 {
-  color: #a1a1aa !important;
+
+details.mwg-details > summary {
+  list-style: none;
 }
-[data-theme="midnight"] .text-stone-500 {
-  color: #71717a !important;
+details.mwg-details > summary::-webkit-details-marker {
+  display: none;
 }
-[data-theme="midnight"] .bg-stone-50,
-[data-theme="midnight"] .bg-\[\#faf9f6\],
-[data-theme="midnight"] .bg-\[\#fcfbf9\] {
-  background-color: #1f1f23 !important;
+details.mwg-details[open] .mwg-details-chevron {
+  rotate: 180deg;
 }
-[data-theme="midnight"] .bg-stone-100 {
-  background-color: #27272a !important;
-}
-[data-theme="midnight"] .hover\:bg-stone-50:hover {
-  background-color: #27272a !important;
-}
-[data-theme="midnight"] .hover\:bg-stone-100:hover {
-  background-color: #27272a !important;
-}
-[data-theme="midnight"] .border-stone-200,
-[data-theme="midnight"] .border-stone-200\/60,
-[data-theme="midnight"] .border-stone-200\/50,
-[data-theme="midnight"] .border-stone-200\/40 {
-  border-color: #27272a !important;
-}
-[data-theme="midnight"] .border-stone-300 {
-  border-color: #3f3f46 !important;
+
+@media (prefers-reduced-motion: reduce) {
+  .mwg-expandable,
+  details.mwg-details::details-content {
+    transition: none !important;
+  }
 }

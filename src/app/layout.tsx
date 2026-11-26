@@ -4,17 +4,15 @@ import Navbar from "@/components/layout/Navbar";
 import { ConfirmProvider } from "@/components/ui/ConfirmModal";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ThemeProvider } from "@/components/ui/ThemeContext";
+import PolyfillLoader from "@/components/ui/PolyfillLoader";
 
 export const metadata: Metadata = {
   title: "Daily RSS Digest · 每日智汇晨报",
-  description: "现代化每日多源 RSS 智汇晨报平台，多源去重、深度聚类、AI 提炼、语音晨报与多渠道触达。",
+  description:
+    "现代化每日多源 RSS 智汇晨报平台，多源去重、深度聚类、AI 提炼、语音晨报与多渠道触达。",
   icons: {
-    icon: [
-      { url: "/icon.svg", type: "image/svg+xml" },
-    ],
-    apple: [
-      { url: "/icon.svg" },
-    ],
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg" }],
   },
 };
 
@@ -24,9 +22,9 @@ export const viewport: Viewport = {
   maximumScale: 5,
 };
 
-// 阻塞式主题预置：在首帧绘制前从 localStorage 恢复用户主题，避免深色用户刷新时闪现纸质亮色（FOUC）。
-// 与 ThemeContext 的存储 key 与合法值保持一致。
-const themePresetScript = `(function(){try{var t=localStorage.getItem("daily_rss_theme");if(t==="light"||t==="midnight")document.documentElement.setAttribute("data-theme",t)}catch(e){}})();`;
+// 阻塞式主题预置脚本：紧跟 <meta name="color-scheme"> 执行，防止首帧闪烁（FOUC）。
+// 若用户未覆盖则保持 "light dark" 并跟随操作系统配色偏好。
+const themePresetScript = `(function(){try{var t=localStorage.getItem("daily_rss_theme");var m=document.querySelector('meta[name="color-scheme"]');if(t==="midnight"){if(m)m.content="dark";document.documentElement.setAttribute("data-theme","midnight");}else if(t==="paper"||t==="light"){if(m)m.content="light";document.documentElement.setAttribute("data-theme",t);}else{if(m)m.content="light dark";document.documentElement.removeAttribute("data-theme");}}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -34,18 +32,29 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" data-theme="paper" suppressHydrationWarning>
-      <body className="min-h-screen flex flex-col selection:bg-amber-100 selection:text-amber-900 transition-colors duration-200">
+    <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <meta name="color-scheme" content="light dark" />
         <script dangerouslySetInnerHTML={{ __html: themePresetScript }} />
+      </head>
+      <body className="min-h-dvh flex flex-col">
+        <a href="#main-content" className="skip-link visually-hidden">
+          跳至主要内容
+        </a>
         <ThemeProvider>
           <ToastProvider>
             <ConfirmProvider>
+              <PolyfillLoader />
               <Navbar />
-              <div className="flex-1">{children}</div>
-              <footer className="border-t border-[#eae6df] py-8 mt-16 text-center text-xs text-stone-400">
+              <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
+                {children}
+              </main>
+              <footer className="border-t border-line py-8 mt-16 text-center text-xs text-ink-muted">
                 <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-1">
-                  <p className="font-serif font-medium text-stone-600">Daily Briefing · 每日智汇晨报</p>
-                  <p className="text-[11px] text-stone-400/80">
+                  <p className="font-serif font-medium text-ink-2">
+                    Daily Briefing · 每日智汇晨报
+                  </p>
+                  <p className="text-xs text-ink-muted">
                     多源聚合 · 智能聚类 · AI 深度提炼 · 语音早报伴读
                   </p>
                 </div>

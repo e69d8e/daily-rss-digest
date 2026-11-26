@@ -44,13 +44,14 @@ async function fetchWithRetry(
   let lastError: any;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
+      const timeoutSignal = AbortSignal.timeout(12000);
+      const signal = options.signal
+        ? AbortSignal.any([options.signal, timeoutSignal])
+        : timeoutSignal;
       const res = await fetch(url, {
         ...options,
-        signal: controller.signal,
+        signal,
       });
-      clearTimeout(timeout);
       return res;
     } catch (err: any) {
       lastError = err;
@@ -189,7 +190,9 @@ export async function fetchAndParseFeed(
       (typeof err?.cause === "string" ? err.cause : "");
     const baseMsg = err instanceof Error ? err.message : String(err);
     const fullMsg = causeMsg ? `${baseMsg} (原因: ${causeMsg})` : baseMsg;
-    throw new Error(`抓取/解析 RSS 订阅源失败 [${cleanUrl}]: ${fullMsg}`);
+    throw new Error(`抓取/解析 RSS 订阅源失败 [${cleanUrl}]: ${fullMsg}`, {
+      cause: error,
+    });
   }
 }
 
@@ -569,17 +572,13 @@ function parseFeedWithCheerio(
  */
 export async function fetchArticleFullText(url: string): Promise<string> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
     const res = await fetch(url, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(10000),
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
       },
     });
-    clearTimeout(timeout);
 
     if (!res.ok) return "";
     const html = await res.text();

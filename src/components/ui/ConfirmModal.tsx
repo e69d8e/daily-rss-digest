@@ -6,10 +6,10 @@ import React, {
   useState,
   useCallback,
   useRef,
-  useEffect,
+  useId,
 } from "react";
 import { Trash2, AlertTriangle, X, Info } from "lucide-react";
-import { isTopModal, popModal, pushModal } from "@/lib/modalStack";
+import ModalDialog from "@/components/ui/ModalDialog";
 
 export type ConfirmVariant = "danger" | "warning" | "info";
 
@@ -61,45 +61,28 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
-  useEffect(() => {
-    if (!isOpen) return;
-    pushModal("confirm-modal");
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // 仅栈顶弹窗响应 Esc，避免叠层弹窗被同时关闭
-      if (e.key === "Escape" && !isLoading && isTopModal("confirm-modal")) {
-        onCancel();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      popModal("confirm-modal");
-    };
-  }, [isOpen, isLoading, onCancel]);
-
-  if (!isOpen) return null;
+  const titleId = useId();
+  const isDestructive = variant === "danger" || variant === "warning";
 
   const renderIcon = () => {
     switch (variant) {
       case "danger":
         return (
-          <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200/70 text-rose-600 flex items-center justify-center shrink-0">
-            <Trash2 className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-danger-soft border border-danger-border text-danger flex items-center justify-center shrink-0">
+            <Trash2 className="w-5 h-5" aria-hidden="true" />
           </div>
         );
       case "warning":
         return (
-          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200/70 text-amber-700 flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-warning-soft border border-warning-border text-warning flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-5 h-5" aria-hidden="true" />
           </div>
         );
       case "info":
       default:
         return (
-          <div className="w-10 h-10 rounded-xl bg-stone-100 border border-stone-200 text-stone-700 flex items-center justify-center shrink-0">
-            <Info className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-muted-surface border border-line text-ink-2 flex items-center justify-center shrink-0">
+            <Info className="w-5 h-5" aria-hidden="true" />
           </div>
         );
     }
@@ -108,63 +91,63 @@ export function ConfirmModal({
   const getConfirmButtonClasses = () => {
     switch (variant) {
       case "danger":
-        return "bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-xs focus:ring-2 focus:ring-rose-400/40";
+        return "bg-danger hover:opacity-90 text-white shadow-xs";
       case "warning":
-        return "bg-amber-700 hover:bg-amber-800 active:bg-amber-900 text-white shadow-xs focus:ring-2 focus:ring-amber-400/40";
+        return "bg-brand hover:bg-brand-hover text-white shadow-xs";
       case "info":
       default:
-        return "bg-stone-900 hover:bg-stone-800 active:bg-black text-white shadow-xs focus:ring-2 focus:ring-stone-400/40";
+        return "bg-action hover:bg-action-hover text-action-fg shadow-xs";
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-xs flex items-center justify-center p-4 transition-all"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isLoading) {
-          onCancel();
-        }
-      }}
-      aria-modal="true"
-      role="dialog"
+    <ModalDialog
+      isOpen={isOpen}
+      onClose={onCancel}
+      closedBy={isLoading ? "none" : "any"}
+      preventClose={isLoading}
+      ariaLabelledBy={titleId}
+      className="w-[min(28rem,calc(100vw-2rem))] rounded-2xl shadow-2xl overflow-hidden bg-subtle"
     >
-      <div
-        className="bg-[#fcfbf9] w-full max-w-md rounded-2xl border border-[#eae6df] shadow-2xl overflow-hidden p-5 sm:p-6 animate-in zoom-in-95 duration-150 relative"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* 右上角关闭按钮 */}
+      <div className="p-5 sm:p-6 relative">
+        {/* 可见关闭按钮 */}
         <button
+          type="button"
           onClick={onCancel}
           disabled={isLoading}
-          className="absolute top-4 right-4 p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors disabled:opacity-50 cursor-pointer"
-          title="关闭"
+          aria-label="关闭确认窗口"
+          className="absolute top-4 end-4 min-h-[28px] min-w-[28px] p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-muted-surface transition-colors disabled:opacity-50 cursor-pointer inline-flex items-center justify-center"
         >
-          <X className="w-4 h-4" />
+          <X className="w-4 h-4" aria-hidden="true" />
         </button>
 
         <div className="flex items-start gap-3.5">
           {renderIcon()}
 
-          <div className="flex-1 pt-0.5 pr-4">
-            <h3 className="font-serif-title text-base sm:text-lg font-bold text-stone-900 tracking-tight">
+          <div className="flex-1 pt-0.5 pe-6 min-w-0">
+            <h1
+              id={titleId}
+              className="font-serif-title text-base sm:text-lg font-bold text-ink tracking-tight"
+            >
               {title}
-            </h3>
+            </h1>
 
             {content && (
-              <div className="text-xs sm:text-[13px] text-stone-600 leading-relaxed mt-2">
+              <div className="text-xs sm:text-sm text-ink-2 leading-relaxed mt-2">
                 {content}
               </div>
             )}
 
             {targetName && (
-              <div className="mt-3 p-2.5 bg-white border border-[#eae6df] rounded-xl text-xs font-medium text-stone-800 break-all flex items-center gap-2 shadow-2xs">
+              <div className="mt-3 p-2.5 bg-card border border-line rounded-xl text-xs font-medium text-ink break-all flex items-center gap-2 shadow-2xs">
                 <span
+                  aria-hidden="true"
                   className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                     variant === "danger"
-                      ? "bg-rose-500"
+                      ? "bg-danger"
                       : variant === "warning"
-                      ? "bg-amber-500"
-                      : "bg-stone-500"
+                      ? "bg-warning"
+                      : "bg-ink-muted"
                   }`}
                 />
                 <span className="truncate">{targetName}</span>
@@ -173,13 +156,14 @@ export function ConfirmModal({
           </div>
         </div>
 
-        {/* 底部操作按钮 */}
-        <div className="flex items-center justify-end gap-2.5 mt-6 pt-4 border-t border-[#eae6df]">
+        {/* 底部操作按钮：高风险操作将 autofocus 置于安全操作“取消”上 */}
+        <div className="flex items-center justify-end gap-2.5 mt-6 pt-4 border-t border-line">
           <button
             type="button"
             onClick={onCancel}
             disabled={isLoading}
-            className="px-4 py-2 rounded-lg text-xs font-medium text-stone-600 hover:text-stone-900 bg-white border border-stone-200 hover:bg-stone-50 transition-colors disabled:opacity-50 cursor-pointer"
+            autoFocus={isDestructive}
+            className="px-4 py-2 rounded-lg text-xs font-medium text-ink-2 hover:text-ink bg-card border border-line hover:bg-muted-surface transition-colors disabled:opacity-50 cursor-pointer"
           >
             {cancelText}
           </button>
@@ -187,13 +171,14 @@ export function ConfirmModal({
             type="button"
             onClick={onConfirm}
             disabled={isLoading}
+            autoFocus={!isDestructive}
             className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer ${getConfirmButtonClasses()}`}
           >
             {isLoading ? "处理中..." : confirmText}
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
 
@@ -209,6 +194,11 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const resolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const confirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
+    // 若上一个确认框仍在等待结果，先以 false 结算，避免 Promise 悬挂
+    if (resolverRef.current) {
+      resolverRef.current(false);
+      resolverRef.current = null;
+    }
     return new Promise((resolve) => {
       resolverRef.current = resolve;
       setModalState({

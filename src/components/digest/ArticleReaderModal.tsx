@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, useId } from "react";
 import {
   X,
   ExternalLink,
@@ -11,14 +11,13 @@ import {
   Clock,
   User,
   BookOpen,
-  Copy,
-  Check,
   AlertTriangle,
-  Loader2,
   Type,
 } from "lucide-react";
-import { useToast } from "@/components/ui/Toast";
-import { isTopModal, popModal, pushModal } from "@/lib/modalStack";
+import ModalDialog from "@/components/ui/ModalDialog";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import CopyButton from "@/components/ui/CopyButton";
+import { isTopModalElement } from "@/lib/modalStack";
 
 interface ArticleReaderModalProps {
   url: string | null;
@@ -45,112 +44,157 @@ export default function ArticleReaderModal({
   initialSourceName,
   onClose,
 }: ArticleReaderModalProps) {
-  const { toast } = useToast();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
   const [loading, setLoading] = useState(true);
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<"sm" | "base" | "lg">("base");
   const [fontSerif, setFontSerif] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-
-  // 滚动容器与阅读进度
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [readingProgress, setReadingProgress] = useState(0);
 
   // TTS 状态
   const [isPlayingTts, setIsPlayingTts] = useState(false);
   const [isPausedTts, setIsPausedTts] = useState(false);
   const [ttsRate, setTtsRate] = useState(1.0);
+  const [ttsNotice, setTtsNotice] = useState("");
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
 
-  // 1. 请求文章正文详情（active 守卫防止过期响应覆盖新文章）
+  const isPlayingRef = useRef(false);
+  const isPausedRef = useRef(false);
+  const currentIndexRef = useRef(0);
+  const rateRef = useRef(ttsRate);
+  rateRef.current = ttsRate;
+
+  const stopTts = useCallback(() => {
+    isPlayingRef.current = false;
+    isPausedRef.current = false;
+    try {
+      if (
+        typeof window !== "undefined" &&
+        window.speechSynthesis &&
+        typeof window.speechSynthesis.cancel === "function"
+      ) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {
+      // ignore
+    }
+    setIsPlayingTts(false);
+    setIsPausedTts(false);
+    setCurrentSentenceIndex(0);
+    currentIndexRef.current = 0;
+  }, []);
+
+  // 1. 请求文章正文详情（active + AbortController 防止过期请求覆盖）
   useEffect(() => {
     if (!url) {
+      stopTts();
       setArticle(null);
+      setTtsNotice("");
       return;
     }
 
-    let active = true;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    setIsPlayingTts(false);
-    setIsPausedTts(false);
-    setReadingProgress(0);
+    setTtsNotice("");
+    stopTts();
+
+    if (progressBarRef.current) {
+      progressBarRef.current.style.transform = "scaleX(0)";
+    }
 
     const encoded = encodeURIComponent(url);
-    fetch(`/api/articles/detail?url=${encoded}`)
+    fetch(`/api/articles/detail?url=${encoded}`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) {
-          const json = await res.json();
-          throw new Error(json.error || "获取正文失败");
+          const json = await res.json().catch(() => null);
+          throw new Error(json?.error || "获取正文失败");
         }
         return res.json();
       })
       .then((data: ArticleDetail) => {
-        if (!active) return;
         setArticle(data);
         setLoading(false);
       })
       .catch((err) => {
-        if (!active) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("加载文章失败:", err);
-        setError(err.message || "正文加载异常");
+        setError(err instanceof Error ? err.message : "正文加载异常");
         setLoading(false);
       });
 
     return () => {
-      active = false;
+      controller.abort();
     };
-  }, [url]);
+  }, [url, stopTts]);
 
-  // 弹窗栈注册：本组件挂载即代表阅读器打开
-  useEffect(() => {
-    pushModal("article-reader");
-    return () => popModal("article-reader");
-  }, []);
+  // 卸载时清理语音
+  useEffect(() => stopTts, [stopTts]);
 
-  // 2. 键盘事件监听 (Esc 关闭, J / K 滚屏) —— 仅在自身为栈顶弹窗时生效
+  // 2. 键盘翻屏快捷键 (J / K) —— 仅当前阅读器为顶层模态框时响应；Esc 交由原生 <dialog> 接管
   useEffect(() => {
+    if (!url) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isTopModal("article-reader")) return;
-      if (e.key === "Escape") {
-        onClose();
-      } else if (e.key === "j" || e.key === "J") {
-        scrollContainerRef.current?.scrollBy({ top: 120, behavior: "smooth" });
+      if (!isTopModalElement(dialogRef.current)) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const prefersReduced = window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches;
+      const behavior: ScrollBehavior = prefersReduced ? "auto" : "smooth";
+
+      if (e.key === "j" || e.key === "J") {
+        scrollContainerRef.current?.scrollBy({ top: 140, behavior });
       } else if (e.key === "k" || e.key === "K") {
-        scrollContainerRef.current?.scrollBy({ top: -120, behavior: "smooth" });
+        scrollContainerRef.current?.scrollBy({ top: -140, behavior });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [url]);
 
-  // 3. 监听滚动进度（rAF 节流，避免长文滚动时每像素触发全弹窗重渲染）
-  const scrollRafRef = useRef<number | null>(null);
-  const handleScroll = () => {
-    if (scrollRafRef.current !== null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      const el = scrollContainerRef.current;
-      if (!el) return;
-      const total = el.scrollHeight - el.clientHeight;
-      if (total <= 0) {
-        setReadingProgress(100);
-        return;
-      }
-      const current = (el.scrollTop / total) * 100;
-      setReadingProgress(Math.min(100, Math.max(0, current)));
-    });
-  };
-
-  // 卸载时取消未执行的 rAF 回调
+  // 3. 滚动阅读进度条：现代浏览器使用 CSS Scroll-Driven Animations (`scroll-timeline`)，
+  //    仅在不支持 `animation-timeline: scroll()` 时回退到无 React 重渲染的被动 scroll 监听
   useEffect(() => {
-    return () => {
-      if (scrollRafRef.current !== null) {
-        cancelAnimationFrame(scrollRafRef.current);
-      }
+    if (!url) return;
+    const scroller = scrollContainerRef.current;
+    const bar = progressBarRef.current;
+    if (!scroller || !bar || typeof window === "undefined") return;
+
+    const prefersReduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    const nativeSupported =
+      !prefersReduced &&
+      Boolean(window.CSS?.supports?.("animation-timeline", "scroll()"));
+    if (nativeSupported) {
+      bar.style.removeProperty("transform");
+      return;
+    }
+
+    const updateProgress = () => {
+      const total = scroller.scrollHeight - scroller.clientHeight;
+      const ratio =
+        total <= 0 ? 1 : Math.min(1, Math.max(0, scroller.scrollTop / total));
+      bar.style.transform = `scaleX(${ratio})`;
     };
-  }, []);
+
+    updateProgress();
+    scroller.addEventListener("scroll", updateProgress, { passive: true });
+    return () => scroller.removeEventListener("scroll", updateProgress);
+  }, [url, article]);
 
   // 4. 将正文拆分为段落
   const paragraphs = useMemo(() => {
@@ -170,30 +214,6 @@ export default function ArticleReaderModal({
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   }, [article?.content]);
-
-  // TTS 控制
-  const isPlayingRef = useRef(false);
-  const isPausedRef = useRef(false);
-  const currentIndexRef = useRef(0);
-  const rateRef = useRef(ttsRate);
-  rateRef.current = ttsRate;
-
-  useEffect(() => {
-    return () => {
-      isPlayingRef.current = false;
-      try {
-        if (
-          typeof window !== "undefined" &&
-          window.speechSynthesis &&
-          typeof window.speechSynthesis.cancel === "function"
-        ) {
-          window.speechSynthesis.cancel();
-        }
-      } catch {
-        // ignore
-      }
-    };
-  }, []);
 
   const speakSentence = (index: number) => {
     if (!isPlayingRef.current || index >= sentences.length) {
@@ -215,9 +235,7 @@ export default function ArticleReaderModal({
         !window.speechSynthesis ||
         typeof window.SpeechSynthesisUtterance === "undefined"
       ) {
-        setIsPlayingTts(false);
-        setIsPausedTts(false);
-        isPlayingRef.current = false;
+        stopTts();
         return;
       }
 
@@ -248,7 +266,11 @@ export default function ArticleReaderModal({
       };
 
       utterance.onerror = (e) => {
-        if (e.error === "canceled" || e.error === "interrupted" || !isPlayingRef.current) {
+        if (
+          e.error === "canceled" ||
+          e.error === "interrupted" ||
+          !isPlayingRef.current
+        ) {
           return;
         }
         if (isPlayingRef.current && !isPausedRef.current) {
@@ -259,9 +281,7 @@ export default function ArticleReaderModal({
       window.speechSynthesis.speak(utterance);
     } catch (err) {
       console.warn("ArticleReaderModal TTS error:", err);
-      setIsPlayingTts(false);
-      setIsPausedTts(false);
-      isPlayingRef.current = false;
+      stopTts();
     }
   };
 
@@ -272,9 +292,10 @@ export default function ArticleReaderModal({
       !window.speechSynthesis ||
       typeof window.SpeechSynthesisUtterance === "undefined"
     ) {
-      toast.error("当前浏览器环境未检测到语音朗读引擎");
+      setTtsNotice("当前浏览器环境未检测到语音朗读引擎");
       return;
     }
+    setTtsNotice("");
     if (sentences.length === 0) return;
 
     try {
@@ -309,7 +330,11 @@ export default function ArticleReaderModal({
 
   const handlePauseTts = () => {
     try {
-      if (typeof window !== "undefined" && window.speechSynthesis && typeof window.speechSynthesis.pause === "function") {
+      if (
+        typeof window !== "undefined" &&
+        window.speechSynthesis &&
+        typeof window.speechSynthesis.pause === "function"
+      ) {
         window.speechSynthesis.pause();
       }
     } catch {
@@ -319,44 +344,10 @@ export default function ArticleReaderModal({
     isPausedRef.current = true;
   };
 
-  const handleStopTts = () => {
-    isPlayingRef.current = false;
-    isPausedRef.current = false;
-    try {
-      if (typeof window !== "undefined" && window.speechSynthesis && typeof window.speechSynthesis.cancel === "function") {
-        window.speechSynthesis.cancel();
-      }
-    } catch {
-      // ignore
-    }
-    setIsPlayingTts(false);
-    setIsPausedTts(false);
-    setCurrentSentenceIndex(0);
-    currentIndexRef.current = 0;
-  };
-
-  const handleCopyLink = async () => {
-    if (!url) return;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(url);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = url;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      setCopiedLink(true);
-      toast.success("已复制源网页链接");
-      setTimeout(() => setCopiedLink(false), 2000);
-    } catch {
-      toast.error("复制失败");
-    }
-  };
-
-  if (!url) return null;
+  const handleClose = useCallback(() => {
+    stopTts();
+    onClose();
+  }, [stopTts, onClose]);
 
   const displayTitle = article?.title || initialTitle || "文章详情";
   const displaySource = article?.sourceName || initialSourceName || "来源源站";
@@ -370,240 +361,273 @@ export default function ArticleReaderModal({
       ? "text-lg leading-[1.95]"
       : "text-[15px] sm:text-base leading-[1.85]";
 
-  const fontFamilyClass = fontSerif ? "font-serif text-stone-900" : "font-sans text-stone-800";
+  const fontFamilyClass = fontSerif
+    ? "font-serif text-ink"
+    : "font-sans text-ink-2";
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          handleStopTts();
-          onClose();
-        }
-      }}
+    <ModalDialog
+      isOpen={Boolean(url)}
+      onClose={handleClose}
+      closedBy="any"
+      ariaLabelledBy={titleId}
+      dialogRef={dialogRef}
+      className="mwg-reader-shell w-full h-dvh sm:h-[min(92dvh,56rem)] max-w-4xl lg:max-w-5xl rounded-none sm:rounded-2xl shadow-2xl overflow-hidden bg-subtle"
     >
-      <div className="bg-[#fcfbf9] w-full h-full sm:h-auto max-w-4xl lg:max-w-5xl sm:max-h-[92vh] rounded-none sm:rounded-2xl border-0 sm:border border-[#eae6df] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 relative">
-        {/* 顶部阅读进度指示线 */}
-        <div className="w-full bg-stone-200/60 h-1 absolute top-0 left-0 z-20 overflow-hidden">
-          <div
-            className="bg-amber-800 h-full transition-all duration-150"
-            style={{ width: `${readingProgress}%` }}
-          />
+      {/* 顶部阅读进度指示线（纯装饰，使用 CSS Scroll-Driven Animation + transform 回退） */}
+      <div
+        aria-hidden="true"
+        className="w-full bg-muted-surface h-1 absolute top-0 inset-x-0 z-20 overflow-hidden"
+      >
+        <div ref={progressBarRef} className="mwg-reading-progress-fill" />
+      </div>
+
+      {/* 顶部控制与标题栏 */}
+      <header className="border-b border-line px-4 sm:px-6 py-3 bg-card flex items-center justify-between gap-2 sm:gap-4 shrink-0 mt-1">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-ink-muted font-mono truncate min-w-0">
+          <span className="bg-subtle text-ink-2 px-2 py-0.5 rounded border border-line font-sans font-medium shrink-0">
+            {displaySource}
+          </span>
+          <span aria-hidden="true">•</span>
+          <span className="flex items-center gap-1 shrink-0">
+            <Clock className="w-3 h-3 text-ink-muted" aria-hidden="true" />
+            <span>约 {estimatedMins} 分钟</span>
+          </span>
+          {wordCount > 0 && (
+            <>
+              <span className="hidden sm:inline" aria-hidden="true">
+                •
+              </span>
+              <span className="hidden sm:inline">{wordCount} 字</span>
+            </>
+          )}
         </div>
 
-        {/* 顶部控制与标题栏 */}
-        <div className="border-b border-[#eae6df] px-4 sm:px-6 py-3 sm:py-3.5 bg-white flex items-center justify-between gap-2 sm:gap-4 shrink-0 mt-1">
-          <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-stone-500 font-mono truncate">
-            <span className="bg-stone-100 text-stone-700 px-2 py-0.5 rounded font-sans font-medium shrink-0">
-              {displaySource}
-            </span>
-            <span>•</span>
-            <span className="flex items-center gap-1 shrink-0">
-              <Clock className="w-3 h-3 text-stone-400" />
-              约 {estimatedMins} 分钟
-            </span>
-            {wordCount > 0 && (
-              <>
-                <span className="hidden sm:inline">•</span>
-                <span className="hidden sm:inline">{wordCount} 字</span>
-              </>
-            )}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* 字体样式切换 (衬线 / 黑体) */}
+          <button
+            type="button"
+            onClick={() => setFontSerif(!fontSerif)}
+            aria-pressed={fontSerif}
+            className={`min-h-[30px] px-2 py-1 rounded-lg border text-xs transition-colors cursor-pointer hidden sm:inline-flex items-center gap-1 ${
+              fontSerif
+                ? "bg-brand-soft text-brand-ink border-brand-border font-serif font-bold"
+                : "bg-card text-ink-2 border-line hover:bg-subtle"
+            }`}
+          >
+            <Type className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{fontSerif ? "衬线" : "黑体"}</span>
+          </button>
+
+          {/* 字号调节 */}
+          <div
+            role="group"
+            aria-label="正文字号"
+            className="hidden sm:flex items-center border border-line rounded-lg p-0.5 text-xs text-ink-2 bg-subtle"
+          >
+            {(
+              [
+                { id: "sm", label: "A-", aria: "小字号" },
+                { id: "base", label: "标准", aria: "标准字号" },
+                { id: "lg", label: "A+", aria: "大字号" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setFontSize(opt.id)}
+                aria-pressed={fontSize === opt.id}
+                aria-label={opt.aria}
+                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                  fontSize === opt.id
+                    ? "bg-card font-bold shadow-2xs text-ink"
+                    : "hover:text-ink"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* 字体样式切换 (衬线 / 黑体) */}
-            <button
-              onClick={() => setFontSerif(!fontSerif)}
-              className={`p-1.5 rounded-lg border border-[#eae6df] text-xs transition-colors cursor-pointer hidden sm:flex items-center gap-1 ${
-                fontSerif
-                  ? "bg-amber-50 text-amber-900 border-amber-300 font-serif font-bold"
-                  : "bg-white text-stone-600 hover:bg-stone-50"
-              }`}
-              title={fontSerif ? "切换为现代黑体" : "切换为典雅衬线体"}
-            >
-              <Type className="w-3.5 h-3.5" />
-              <span>{fontSerif ? "衬线" : "黑体"}</span>
-            </button>
+          {/* 复制原文链接 */}
+          {url && (
+            <CopyButton
+              getText={() => url}
+              ariaLabel="复制原文链接"
+              className="p-1.5 text-ink-muted hover:text-ink hover:bg-subtle rounded-lg transition-colors border border-line bg-card"
+            />
+          )}
 
-            {/* 字号调节 */}
-            <div className="hidden sm:flex items-center border border-[#eae6df] rounded-lg p-0.5 text-xs text-stone-600 bg-stone-50">
-              <button
-                onClick={() => setFontSize("sm")}
-                className={`px-2 py-0.5 rounded cursor-pointer ${
-                  fontSize === "sm" ? "bg-white font-bold shadow-xs text-stone-900" : "hover:text-stone-900"
-                }`}
-                title="小字号"
-              >
-                A-
-              </button>
-              <button
-                onClick={() => setFontSize("base")}
-                className={`px-2 py-0.5 rounded cursor-pointer ${
-                  fontSize === "base" ? "bg-white font-bold shadow-xs text-stone-900" : "hover:text-stone-900"
-                }`}
-                title="标准字号"
-              >
-                标准
-              </button>
-              <button
-                onClick={() => setFontSize("lg")}
-                className={`px-2 py-0.5 rounded cursor-pointer ${
-                  fontSize === "lg" ? "bg-white font-bold shadow-xs text-stone-900" : "hover:text-stone-900"
-                }`}
-                title="大字号"
-              >
-                A+
-              </button>
-            </div>
-
-            {/* 复制链接 */}
-            <button
-              onClick={handleCopyLink}
-              className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer border border-stone-200"
-              title="复制原文链接"
-            >
-              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-
-            {/* 打开原始网页 */}
+          {/* 打开原始网页 */}
+          {url && (
             <a
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-2.5 py-1 text-xs text-stone-600 hover:text-stone-950 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1 border border-stone-200"
-              title="在原始网站打开"
+              aria-label={`在原始网站打开：${displayTitle}`}
+              className="min-h-[30px] px-2.5 py-1 text-xs text-ink-2 hover:text-ink hover:bg-subtle rounded-lg transition-colors inline-flex items-center gap-1 border border-line bg-card"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
               <span className="hidden sm:inline">源站原文</span>
             </a>
+          )}
 
-            {/* 关闭按钮 */}
+          {/* 可见关闭按钮 */}
+          <button
+            type="button"
+            onClick={handleClose}
+            aria-label="关闭文章阅读器"
+            autoFocus
+            className="min-h-[32px] min-w-[32px] p-1.5 text-ink-muted hover:text-ink hover:bg-subtle rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
+          >
+            <X className="w-5 h-5" aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+
+      {/* 次顶部音频伴读条 */}
+      {article?.content && (
+        <div className="bg-brand-soft border-b border-brand-border/50 px-4 sm:px-6 py-2 flex items-center justify-between gap-3 text-xs text-brand-ink shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <Volume2 className="w-4 h-4 text-brand shrink-0" aria-hidden="true" />
+            <span className="font-semibold">正文语音伴读</span>
+            {isPlayingTts && (
+              <span className="text-xs text-brand-ink/80 font-mono truncate">
+                [{currentSentenceIndex + 1}/{sentences.length}]
+              </span>
+            )}
+            {ttsNotice && (
+              <span role="status" className="text-xs text-danger font-medium">
+                {ttsNotice}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {!isPlayingTts || isPausedTts ? (
+              <button
+                type="button"
+                onClick={handlePlayTts}
+                className="min-h-[28px] px-3 py-1 bg-action text-action-fg rounded-md font-medium text-xs hover:bg-action-hover transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Play className="w-3 h-3 fill-current" aria-hidden="true" />
+                <span>{isPausedTts ? "继续" : "朗读正文"}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handlePauseTts}
+                className="min-h-[28px] px-3 py-1 bg-card text-brand-ink border border-brand-border rounded-md font-medium text-xs hover:bg-subtle transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Pause className="w-3 h-3 fill-current" aria-hidden="true" />
+                <span>暂停</span>
+              </button>
+            )}
+
+            {(isPlayingTts || isPausedTts) && (
+              <button
+                type="button"
+                onClick={stopTts}
+                aria-label="停止朗读"
+                className="min-h-[28px] min-w-[28px] p-1 text-ink-2 hover:text-danger rounded cursor-pointer inline-flex items-center justify-center"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
+              </button>
+            )}
+
             <button
-              onClick={() => {
-                handleStopTts();
-                onClose();
-              }}
-              className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
-              title="关闭 (Esc)"
+              type="button"
+              onClick={() =>
+                setTtsRate((prev) =>
+                  prev === 1.0 ? 1.25 : prev === 1.25 ? 1.5 : 1.0
+                )
+              }
+              aria-label={`调整朗读倍速，当前 ${ttsRate} 倍速`}
+              className="min-h-[28px] font-mono text-xs px-2 py-0.5 border border-brand-border rounded text-brand-ink hover:bg-card/60 cursor-pointer transition-colors"
             >
-              <X className="w-5 h-5" />
+              {ttsRate}x
             </button>
           </div>
         </div>
+      )}
 
-        {/* 次顶部音频伴读条 */}
-        {article?.content && (
-          <div className="bg-amber-50/70 border-b border-amber-200/50 px-4 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-3 text-xs text-amber-900 shrink-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <Volume2 className="w-4 h-4 text-amber-700 shrink-0" />
-              <span className="font-semibold">正文语音伴读</span>
-              {isPlayingTts && (
-                <span className="text-[11px] text-amber-700/80 font-mono truncate">
-                  [{currentSentenceIndex + 1}/{sentences.length}]
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              {!isPlayingTts || isPausedTts ? (
-                <button
-                  onClick={handlePlayTts}
-                  className="px-3 py-1 bg-stone-900 text-white rounded-md font-medium text-xs hover:bg-amber-800 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <Play className="w-3 h-3 fill-current" />
-                  <span>{isPausedTts ? "继续" : "朗读正文"}</span>
-                </button>
-              ) : (
-                <button
-                  onClick={handlePauseTts}
-                  className="px-3 py-1 bg-amber-200 text-amber-900 rounded-md font-medium text-xs hover:bg-amber-300 transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Pause className="w-3 h-3 fill-current" />
-                  <span>暂停</span>
-                </button>
-              )}
-
-              {(isPlayingTts || isPausedTts) && (
-                <button
-                  onClick={handleStopTts}
-                  className="p-1 text-stone-500 hover:text-rose-600 rounded cursor-pointer"
-                  title="停止朗读"
-                >
-                  <Square className="w-3.5 h-3.5 fill-current" />
-                </button>
-              )}
-
-              <button
-                onClick={() =>
-                  setTtsRate((prev) => (prev === 1.0 ? 1.25 : prev === 1.25 ? 1.5 : 1.0))
-                }
-                className="font-mono text-[11px] px-1.5 py-0.5 border border-amber-300 rounded text-amber-800 hover:bg-amber-100 cursor-pointer"
-                title="调整朗读倍速"
-              >
-                {ttsRate}x
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 内容滚动作业区 */}
-        <div
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
-          className="overflow-y-auto px-4 sm:px-10 lg:px-12 py-5 sm:py-8 space-y-5 sm:space-y-6 flex-1 bg-white"
-        >
+      {/* 内容滚动作业区（带纵向滚动阴影提示与 Scroll-Timeline 进度驱动） */}
+      <div
+        ref={scrollContainerRef}
+        className="mwg-reader-scroll mwg-scroll-shadows flex-1 bg-card px-4 sm:px-10 lg:px-12 py-5 sm:py-8"
+      >
+        <div className="max-w-[68ch] mx-auto space-y-5 sm:space-y-6">
           {loading ? (
-            <div className="py-24 flex flex-col items-center justify-center gap-3 text-stone-400">
-              <Loader2 className="w-7 h-7 animate-spin text-amber-700" />
-              <p className="text-xs font-serif text-stone-500">正在提炼排版文章详情...</p>
+            <div className="py-24 flex flex-col items-center justify-center gap-3 text-ink-muted">
+              <LoadingSpinner label="正在提炼排版文章详情" size="md" />
+              <p className="text-xs font-serif text-ink-muted">
+                正在提炼排版文章详情...
+              </p>
             </div>
           ) : error ? (
-            <div className="py-16 text-center space-y-3">
-              <AlertTriangle className="w-8 h-8 text-amber-600 mx-auto" />
-              <p className="text-sm text-stone-700 font-medium">未能直接获取正文</p>
-              <p className="text-xs text-stone-400 max-w-md mx-auto">{error}</p>
-              <div className="pt-3">
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 bg-stone-900 text-white rounded-lg text-xs font-semibold hover:bg-amber-800 transition-colors inline-flex items-center gap-1.5"
-                >
-                  前往原网页查看 <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              </div>
+            <div className="py-16 text-center space-y-3" role="alert">
+              <AlertTriangle
+                className="w-8 h-8 text-warning mx-auto"
+                aria-hidden="true"
+              />
+              <h1 id={titleId} className="text-base text-ink font-semibold">
+                未能直接获取正文
+              </h1>
+              <p className="text-xs text-ink-muted max-w-md mx-auto">{error}</p>
+              {url && (
+                <div className="pt-3">
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 bg-action text-action-fg rounded-lg text-xs font-semibold hover:bg-action-hover transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <span>前往原网页查看</span>
+                    <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                  </a>
+                </div>
+              )}
             </div>
           ) : (
-            <>
-              {/* 标题区 */}
-              <div className="border-b border-[#eae6df] pb-5 sm:pb-6 space-y-2.5">
-                <h1 className="font-serif-title text-xl sm:text-2xl lg:text-3xl font-bold text-stone-950 tracking-tight leading-snug">
+            <article className="prose-pretty space-y-5 sm:space-y-6">
+              {/* 标题区（模态框内顶层主标题使用 h1） */}
+              <div className="border-b border-line pb-5 sm:pb-6 space-y-2.5">
+                <h1
+                  id={titleId}
+                  className="font-serif-title editorial-title font-bold text-ink tracking-tight"
+                >
                   {displayTitle}
                 </h1>
 
-                <div className="flex items-center gap-3 text-xs text-stone-400 font-mono flex-wrap">
+                <div className="flex items-center gap-3 text-xs text-ink-muted font-mono flex-wrap">
                   {article?.author && (
-                    <span className="flex items-center gap-1 text-stone-600">
-                      <User className="w-3 h-3 text-stone-400" />
-                      {article.author}
+                    <span className="flex items-center gap-1 text-ink-2">
+                      <User
+                        className="w-3 h-3 text-ink-muted"
+                        aria-hidden="true"
+                      />
+                      <span>{article.author}</span>
                     </span>
                   )}
                   {article?.publishedAt && (
-                    <span>
-                      发布于 {new Date(article.publishedAt).toLocaleDateString("zh-CN")}
-                    </span>
+                    <time dateTime={article.publishedAt}>
+                      发布于{" "}
+                      {new Date(article.publishedAt).toLocaleDateString("zh-CN")}
+                    </time>
                   )}
-                  <span className="bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded text-[11px]">
+                  <span className="bg-subtle text-ink-2 px-1.5 py-0.5 rounded border border-line text-xs">
                     {article?.isFullText ? "全文提取就绪" : "摘要预览模式"}
                   </span>
-                  <span className="text-stone-300 font-sans hidden sm:inline">
+                  <span className="text-ink-muted font-sans hidden sm:inline">
                     · 按 J / K 可上下翻动
                   </span>
                 </div>
               </div>
 
               {/* 正文段落区 */}
-              <div className={`space-y-4 text-justify ${fontFamilyClass} ${fontSizeClass}`}>
+              <div
+                className={`space-y-4 text-start ${fontFamilyClass} ${fontSizeClass}`}
+              >
                 {paragraphs.map((para, idx) => (
                   <p key={idx} className="leading-relaxed">
                     {para}
@@ -612,45 +636,53 @@ export default function ArticleReaderModal({
               </div>
 
               {/* 若非完全全文，显示提示与直达按钮 */}
-              {!article?.isFullText && (
-                <div className="bg-amber-50/60 border border-amber-200/80 rounded-xl p-4 text-xs text-amber-900 space-y-2 mt-6">
+              {!article?.isFullText && url && (
+                <div className="bg-brand-soft border border-brand-border/60 rounded-xl p-4 text-xs text-brand-ink space-y-2 mt-6">
                   <div className="font-semibold flex items-center gap-1.5">
-                    <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-                    <span>提示：当前源站仅提供摘要预览或正文受防爬虫机制保护</span>
+                    <BookOpen
+                      className="w-3.5 h-3.5 text-brand"
+                      aria-hidden="true"
+                    />
+                    <span>
+                      提示：当前源站仅提供摘要预览或正文受防爬虫机制保护
+                    </span>
                   </div>
-                  <p className="text-stone-600 leading-relaxed">
-                    如需查看原始图片、完整代码块或读者互动评论，可直接点击下方按钮直达源网站。
+                  <p className="text-ink-2 leading-relaxed">
+                    如需查看原始图片、完整代码块或读者互动评论，可直接点击下方链接直达源网站。
                   </p>
                   <a
                     href={url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-semibold text-amber-800 hover:text-amber-950 hover:underline pt-1"
+                    className="inline-flex items-center gap-1 font-semibold text-brand hover:text-brand-hover hover:underline pt-1"
                   >
-                    在源站阅读完整图文正文 <ExternalLink className="w-3 h-3" />
+                    <span>在源站阅读完整图文正文</span>
+                    <ExternalLink className="w-3 h-3" aria-hidden="true" />
                   </a>
                 </div>
               )}
-            </>
+            </article>
           )}
         </div>
+      </div>
 
-        {/* 底部信息与外链操作 */}
-        <div className="border-t border-[#eae6df] px-4 sm:px-6 py-2.5 sm:py-3 bg-stone-50 flex items-center justify-between text-xs text-stone-500 shrink-0">
-          <span className="truncate max-w-sm font-mono text-[11px] text-stone-400">
-            {url}
-          </span>
+      {/* 底部信息与外链操作 */}
+      <footer className="border-t border-line px-4 sm:px-6 py-2.5 sm:py-3 bg-subtle flex items-center justify-between gap-4 text-xs text-ink-muted shrink-0">
+        <span className="truncate max-w-sm font-mono text-xs text-ink-muted">
+          {url}
+        </span>
+        {url && (
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1 text-stone-700 hover:text-amber-800 font-medium transition-colors"
+            className="flex items-center gap-1 text-ink-2 hover:text-brand font-medium transition-colors shrink-0"
           >
             <span>访问源网页</span>
-            <ExternalLink className="w-3 h-3" />
+            <ExternalLink className="w-3 h-3" aria-hidden="true" />
           </a>
-        </div>
-      </div>
-    </div>
+        )}
+      </footer>
+    </ModalDialog>
   );
 }

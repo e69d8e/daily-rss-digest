@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import React, { useId, useState } from "react";
 import {
-  Sparkles,
   Eye,
   EyeOff,
   Save,
@@ -14,17 +13,19 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+interface AiConfigState {
+  provider: string;
+  apiFormat?: string;
+  apiKey: string;
+  hasApiKey?: boolean;
+  isEnvKey?: boolean;
+  baseURL: string;
+  model: string;
+  temperature: number;
+}
+
 interface AiSettingsTabProps {
-  ai: {
-    provider: string;
-    apiFormat?: string;
-    apiKey: string;
-    hasApiKey?: boolean;
-    isEnvKey?: boolean;
-    baseURL: string;
-    model: string;
-    temperature: number;
-  };
+  ai: AiConfigState;
   setAi: React.Dispatch<React.SetStateAction<any>>;
   onSave: () => Promise<void>;
   saving: boolean;
@@ -38,6 +39,11 @@ export default function AiSettingsTab({
   saving,
   saveSuccess,
 }: AiSettingsTabProps) {
+  const baseUrlId = useId();
+  const modelId = useId();
+  const apiKeyId = useId();
+  const apiKeyHintId = useId();
+  const tempId = useId();
   const [showApiKey, setShowApiKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -51,7 +57,7 @@ export default function AiSettingsTab({
 
   const handleProviderPreset = (provider: string) => {
     if (provider === "deepseek") {
-      setAi((prev: any) => ({
+      setAi((prev: AiConfigState) => ({
         ...prev,
         provider: "deepseek",
         apiFormat: "chat_completions",
@@ -59,7 +65,7 @@ export default function AiSettingsTab({
         model: "deepseek-chat",
       }));
     } else if (provider === "openai") {
-      setAi((prev: any) => ({
+      setAi((prev: AiConfigState) => ({
         ...prev,
         provider: "openai",
         apiFormat: "chat_completions",
@@ -67,7 +73,7 @@ export default function AiSettingsTab({
         model: "gpt-4o-mini",
       }));
     } else if (provider === "claude") {
-      setAi((prev: any) => ({
+      setAi((prev: AiConfigState) => ({
         ...prev,
         provider: "claude",
         apiFormat: "messages",
@@ -75,7 +81,7 @@ export default function AiSettingsTab({
         model: "claude-3-5-sonnet-20241022",
       }));
     } else if (provider === "ollama") {
-      setAi((prev: any) => ({
+      setAi((prev: AiConfigState) => ({
         ...prev,
         provider: "ollama",
         apiFormat: "chat_completions",
@@ -84,7 +90,7 @@ export default function AiSettingsTab({
         apiKey: "ollama",
       }));
     } else {
-      setAi((prev: any) => ({ ...prev, provider: "custom" }));
+      setAi((prev: AiConfigState) => ({ ...prev, provider: "custom" }));
     }
   };
 
@@ -123,84 +129,111 @@ export default function AiSettingsTab({
         latencyMs: data.latencyMs,
         message: data.message || "连通成功！模型响应正常",
       });
-    } catch (err: any) {
+    } catch (err) {
       setTestResult({
         success: false,
-        error: err.message || "网络请求异常",
+        error: err instanceof Error ? err.message : "网络请求异常",
       });
     } finally {
       setTesting(false);
     }
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void onSave();
+  };
+
+  const tempDescriptor =
+    ai.temperature <= 0.3
+      ? "严谨稳定"
+      : ai.temperature >= 0.7
+      ? "创意发散"
+      : "均衡推荐";
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#eae6df]">
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-line">
         <div>
-          <h3 className="text-base font-bold text-stone-900">
+          <h2 className="text-base font-bold text-ink">
             AI 聚类提炼引擎配置
-          </h3>
-          <p className="text-xs text-stone-500 mt-0.5">
+          </h2>
+          <p className="text-xs text-ink-muted mt-0.5">
             默认未配置 API Key 时系统会自动启用本地智能提炼引擎，填写后将享受完整 LLM 聚类、打分与洞察。
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
           <button
+            type="button"
             onClick={handleTestConnection}
             disabled={testing || saving}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-stone-300 bg-white text-stone-700 text-xs font-semibold hover:bg-stone-50 transition-colors shadow-2xs disabled:opacity-50"
-            title="测试当前 API 设置是否可用"
+            className="min-h-[34px] flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-line-strong/70 bg-card text-ink-2 hover:text-ink text-xs font-semibold hover:bg-subtle transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
           >
             {testing ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+              <RefreshCw
+                className="w-3.5 h-3.5 motion-safe:animate-spin text-brand"
+                aria-hidden="true"
+              />
             ) : (
-              <Zap className="w-3.5 h-3.5 text-amber-600" />
+              <Zap className="w-3.5 h-3.5 text-brand" aria-hidden="true" />
             )}
             <span>{testing ? "测试中..." : "测试连通性"}</span>
           </button>
 
           <button
-            onClick={onSave}
+            type="submit"
             disabled={saving || testing}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-semibold hover:bg-amber-800 transition-colors shadow-xs disabled:opacity-50"
+            className="min-h-[34px] flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-action text-action-fg text-xs font-semibold hover:bg-action-hover transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
           >
-            <Save className="w-3.5 h-3.5" />
+            <Save className="w-3.5 h-3.5" aria-hidden="true" />
             <span>{saving ? "保存中..." : "保存 AI 配置"}</span>
           </button>
         </div>
       </div>
 
       {saveSuccess && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-medium text-emerald-800 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+        <div
+          role="status"
+          className="p-3 bg-success-soft border border-success-border rounded-xl text-xs font-medium text-success flex items-center gap-2"
+        >
+          <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
           <span>AI 引擎配置已成功同步持久化！</span>
         </div>
       )}
 
       {testResult && (
         <div
+          role={testResult.success ? "status" : "alert"}
           className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
             testResult.success
-              ? "bg-emerald-50/80 border-emerald-200 text-emerald-900"
-              : "bg-rose-50/80 border-rose-200 text-rose-900"
+              ? "bg-success-soft border-success-border text-success"
+              : "bg-danger-soft border-danger-border text-danger"
           }`}
         >
           {testResult.success ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <CheckCircle2
+              className="w-4 h-4 shrink-0 mt-0.5"
+              aria-hidden="true"
+            />
           ) : (
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <AlertCircle
+              className="w-4 h-4 shrink-0 mt-0.5"
+              aria-hidden="true"
+            />
           )}
           <div className="flex-1">
-            <div className="font-semibold flex items-center gap-2">
-              <span>{testResult.success ? "连通测试成功！" : "连通测试失败"}</span>
+            <div className="font-semibold flex items-center gap-2 flex-wrap">
+              <span>
+                {testResult.success ? "连通测试成功！" : "连通测试失败"}
+              </span>
               {testResult.latencyMs !== undefined && (
-                <span className="font-mono text-[11px] px-1.5 py-0.2 rounded-md bg-emerald-100 text-emerald-800">
+                <span className="font-mono text-xs px-1.5 py-0.5 rounded-md bg-card/70 border border-success-border">
                   耗时 {testResult.latencyMs}ms
                 </span>
               )}
             </div>
-            <p className="text-[11px] opacity-90 mt-0.5">
+            <p className="text-xs opacity-90 mt-0.5">
               {testResult.success ? testResult.message : testResult.error}
             </p>
           </div>
@@ -208,10 +241,10 @@ export default function AiSettingsTab({
       )}
 
       {/* 预设提供商快速切换 */}
-      <div>
-        <label className="block text-xs font-semibold text-stone-700 mb-2">
+      <fieldset className="border-0 p-0 m-0 space-y-2">
+        <legend className="block text-xs font-semibold text-ink-2 mb-2">
           推荐模型提供商快捷预设
-        </label>
+        </legend>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
           {[
             { id: "deepseek", name: "DeepSeek", desc: "高性价比首选" },
@@ -219,30 +252,36 @@ export default function AiSettingsTab({
             { id: "claude", name: "Claude", desc: "Anthropic Messages" },
             { id: "ollama", name: "Ollama 本地", desc: "私有化零成本" },
             { id: "custom", name: "自定义 / 其他", desc: "兼容协议" },
-          ].map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => handleProviderPreset(p.id)}
-              className={`p-3 rounded-xl border text-left transition-all ${
-                ai.provider === p.id
-                  ? "border-stone-900 bg-stone-50 text-stone-900 shadow-2xs font-semibold ring-1 ring-stone-900"
-                  : "border-stone-200 hover:border-stone-400 text-stone-600 bg-white"
-              }`}
-            >
-              <div className="text-xs">{p.name}</div>
-              <div className="text-[10px] text-stone-400 font-normal">{p.desc}</div>
-            </button>
-          ))}
+          ].map((p) => {
+            const isSelected = ai.provider === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => handleProviderPreset(p.id)}
+                className={`p-3 rounded-xl border text-start transition-colors cursor-pointer ${
+                  isSelected
+                    ? "border-brand-border bg-brand-soft/60 text-ink shadow-2xs font-semibold ring-1 ring-brand-border"
+                    : "border-line hover:border-line-strong text-ink-2 bg-card hover:bg-subtle"
+                }`}
+              >
+                <div className="text-xs">{p.name}</div>
+                <div className="text-[11px] text-ink-muted font-normal mt-0.5">
+                  {p.desc}
+                </div>
+              </button>
+            );
+          })}
         </div>
-      </div>
+      </fieldset>
 
-      {/* API 协议规范格式选择 */}
-      <div className="bg-white p-5 rounded-xl border border-[#eae6df] space-y-3">
-        <label className="block text-xs font-semibold text-stone-900">
+      {/* API 协议规范格式选择：使用原生 radio + :has(:checked) 替代可点击 <div> */}
+      <fieldset className="bg-card p-5 rounded-xl border border-line space-y-3">
+        <legend className="text-xs font-semibold text-ink px-1">
           API 请求协议格式 (API Format)
-        </label>
-        <p className="text-[11px] text-stone-500">
+        </legend>
+        <p className="text-xs text-ink-muted">
           根据所选的大模型服务商或代理中转接口，选择对应的通信协议结构：
         </p>
 
@@ -272,93 +311,134 @@ export default function AiSettingsTab({
           ].map((fmt) => {
             const isSelected = currentApiFormat === fmt.id;
             return (
-              <div
+              <label
                 key={fmt.id}
-                onClick={() => setAi((prev: any) => ({ ...prev, apiFormat: fmt.id }))}
-                className={`cursor-pointer p-3.5 rounded-xl border transition-all ${
-                  isSelected
-                    ? "border-amber-700 bg-amber-50/40 shadow-xs ring-1 ring-amber-700"
-                    : "border-stone-200 hover:border-stone-300 bg-stone-50/30"
-                }`}
+                className="cursor-pointer p-3.5 rounded-xl border border-line bg-subtle/60 hover:border-line-strong has-[:checked]:border-brand-border has-[:checked]:bg-brand-soft/45 has-[:checked]:ring-1 has-[:checked]:ring-brand-border has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-brand transition-colors block"
               >
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-xs font-bold text-ink flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="apiFormat"
+                      value={fmt.id}
+                      checked={isSelected}
+                      onChange={() =>
+                        setAi((prev: AiConfigState) => ({
+                          ...prev,
+                          apiFormat: fmt.id,
+                        }))
+                      }
+                      className="cursor-pointer"
+                    />
                     <span>{fmt.name}</span>
-                  </div>
+                  </span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                    className={`text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0 ${
                       isSelected
-                        ? "bg-amber-800 text-white"
-                        : "bg-stone-200 text-stone-600"
+                        ? "bg-brand text-white"
+                        : "bg-muted-surface text-ink-2"
                     }`}
                   >
                     {fmt.badge}
                   </span>
                 </div>
-                <p className="text-[11px] text-stone-600 leading-snug mt-1">
+                <p className="text-xs text-ink-2 leading-snug mt-1">
                   {fmt.desc}
                 </p>
-                <div className="mt-2 text-[10px] font-mono text-stone-400 bg-white/80 px-2 py-1 rounded border border-stone-200/80">
+                <div className="mt-2 text-[11px] font-mono text-ink-muted bg-card px-2 py-1 rounded border border-line">
                   {fmt.pathHint}
                 </div>
-              </div>
+              </label>
             );
           })}
         </div>
-      </div>
+      </fieldset>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white p-5 rounded-xl border border-[#eae6df]">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-card p-5 rounded-xl border border-line">
         <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">
+          <label
+            htmlFor={baseUrlId}
+            className="block text-xs font-semibold text-ink-2 mb-1.5"
+          >
             API Base URL (端点根地址)
           </label>
           <input
-            type="text"
+            id={baseUrlId}
+            name="baseURL"
+            type="url"
+            spellCheck={false}
+            autoCapitalize="none"
+            autoCorrect="off"
             value={ai.baseURL}
             onChange={(e) => setAi({ ...ai, baseURL: e.target.value })}
             placeholder="https://api.deepseek.com/v1"
-            className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs font-mono focus:outline-none focus:border-stone-900 bg-white"
+            className="mwg-field-control w-full px-3 py-2 rounded-lg border border-line-strong/70 text-sm sm:text-xs font-mono bg-card text-ink"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">
+          <label
+            htmlFor={modelId}
+            className="block text-xs font-semibold text-ink-2 mb-1.5"
+          >
             模型名称 (Model Name)
           </label>
           <input
+            id={modelId}
+            name="model"
             type="text"
+            spellCheck={false}
+            autoCapitalize="none"
+            autoCorrect="off"
             value={ai.model}
             onChange={(e) => setAi({ ...ai, model: e.target.value })}
             placeholder="deepseek-chat / gpt-4o-mini / claude-3-5-sonnet-20241022"
-            className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs font-mono focus:outline-none focus:border-stone-900 bg-white"
+            className="mwg-field-control w-full px-3 py-2 rounded-lg border border-line-strong/70 text-sm sm:text-xs font-mono bg-card text-ink"
           />
         </div>
 
         {/* API Key 关键安全脱敏区域 */}
         <div className="sm:col-span-2">
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-semibold text-stone-700">
+          <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+            <label
+              htmlFor={apiKeyId}
+              className="block text-xs font-semibold text-ink-2"
+            >
               API Key (密钥安全脱敏保护)
             </label>
             <div className="flex items-center gap-1.5">
               {ai.isEnvKey && (
-                <span className="text-[11px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                <span className="text-xs font-medium text-success bg-success-soft border border-success-border px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" aria-hidden="true" />
                   <span>云端环境变量已注入 (安全防泄露)</span>
                 </span>
               )}
               {!ai.isEnvKey && ai.hasApiKey && (
-                <span className="text-[11px] font-medium text-stone-600 bg-stone-100 border border-stone-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-stone-500" />
+                <span className="text-xs font-medium text-ink-2 bg-subtle border border-line px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-ink-muted" aria-hidden="true" />
                   <span>已保存并脱敏保护</span>
                 </span>
               )}
             </div>
           </div>
 
+          <p
+            id={apiKeyHintId}
+            className="text-xs text-ink-muted mb-2 leading-relaxed"
+          >
+            接口绝不向浏览器明文输出原始密钥；云端部署时建议直接在环境变量中配置{" "}
+            <code className="text-ink-2 font-mono">AI_API_KEY</code>。
+          </p>
+
           <div className="relative">
             <input
+              id={apiKeyId}
+              name="apiKey"
               type={showApiKey ? "text" : "password"}
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
+              aria-describedby={apiKeyHintId}
               value={ai.apiKey}
               onChange={(e) =>
                 setAi({
@@ -373,17 +453,16 @@ export default function AiSettingsTab({
                   : "sk-..."
               }
               disabled={ai.isEnvKey}
-              className="w-full pl-3 pr-24 py-2 rounded-lg border border-stone-300 text-xs font-mono focus:outline-none focus:border-stone-900 bg-white disabled:bg-stone-50 disabled:text-stone-500"
+              className="w-full ps-3 pe-24 py-2 rounded-lg border border-line-strong/70 text-sm sm:text-xs font-mono bg-card text-ink disabled:bg-subtle disabled:text-ink-muted"
             />
-            <div className="absolute right-2 top-2 flex items-center gap-1">
+            <div className="absolute end-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
               {ai.hasApiKey && !ai.isEnvKey && (
                 <button
                   type="button"
                   onClick={() =>
                     setAi({ ...ai, apiKey: "__CLEAR__", hasApiKey: false })
                   }
-                  className="text-[11px] text-stone-400 hover:text-rose-600 px-1.5 py-0.5 rounded hover:bg-stone-100 transition-colors"
-                  title="清空当前保存的密钥"
+                  className="text-xs text-ink-muted hover:text-danger px-2 py-1 rounded hover:bg-subtle transition-colors cursor-pointer"
                 >
                   清除
                 </button>
@@ -391,40 +470,64 @@ export default function AiSettingsTab({
               <button
                 type="button"
                 onClick={() => setShowApiKey(!showApiKey)}
-                className="text-stone-400 hover:text-stone-700 p-1 cursor-pointer"
-                title={showApiKey ? "隐藏内容" : "显示内容"}
+                aria-pressed={showApiKey}
+                aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                className="min-h-[28px] min-w-[28px] text-ink-muted hover:text-ink p-1 rounded hover:bg-subtle cursor-pointer inline-flex items-center justify-center"
               >
                 {showApiKey ? (
-                  <EyeOff className="w-3.5 h-3.5" />
+                  <EyeOff className="w-4 h-4" aria-hidden="true" />
                 ) : (
-                  <Eye className="w-3.5 h-3.5" />
+                  <Eye className="w-4 h-4" aria-hidden="true" />
                 )}
               </button>
             </div>
           </div>
-
-          <p className="text-[11px] text-stone-400 mt-1.5 leading-relaxed">
-            🛡️ <strong>云端安全防泄露机制</strong>：接口绝不向浏览器明文输出原始密钥。在 Netlify 云端部署时，强烈建议直接在平台的 <strong>Environment Variables</strong> 中配置 <code className="text-stone-600 font-mono">AI_API_KEY</code>，密钥将全生命周期留存在服务端，公网绝不暴露。
-          </p>
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">
-            采样温度 (Temperature: {ai.temperature})
-          </label>
+        {/* 采样温度滑块：遵循 slider 指南，跨浏览器分离轨道/滑块伪元素并同步进度变量 */}
+        <div className="sm:col-span-2 max-w-md">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label
+              htmlFor={tempId}
+              className="text-xs font-semibold text-ink-2"
+            >
+              采样温度 (Temperature)
+            </label>
+            <output
+              htmlFor={tempId}
+              className="text-xs font-mono text-brand-ink bg-brand-soft border border-brand-border/60 px-2 py-0.5 rounded-md"
+            >
+              {ai.temperature.toFixed(1)} · {tempDescriptor}
+            </output>
+          </div>
           <input
+            id={tempId}
+            name="temperature"
             type="range"
-            min="0"
-            max="1"
-            step="0.1"
+            min={0}
+            max={1}
+            step={0.1}
             value={ai.temperature}
+            aria-valuetext={`${ai.temperature.toFixed(1)}，${tempDescriptor}`}
             onChange={(e) =>
               setAi({ ...ai, temperature: parseFloat(e.target.value) })
             }
-            className="w-full accent-stone-900"
+            style={
+              {
+                "--attr-min": 0,
+                "--attr-max": 1,
+                "--control-value": ai.temperature,
+              } as React.CSSProperties
+            }
+            className="mwg-slider"
           />
+          <div className="flex justify-between text-[11px] text-ink-muted font-mono -mt-1">
+            <span>0.0 严谨</span>
+            <span>0.5 均衡</span>
+            <span>1.0 发散</span>
+          </div>
         </div>
       </div>
-    </div>
+    </form>
   );
 }

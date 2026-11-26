@@ -3,11 +3,13 @@ import React from "react";
 interface BrandLogoProps extends React.SVGProps<SVGSVGElement> {
   size?: number;
   className?: string;
+  decorative?: boolean;
 }
 
 export default function BrandLogo({
   size = 32,
   className = "",
+  decorative = true,
   ...props
 }: BrandLogoProps) {
   return (
@@ -18,6 +20,9 @@ export default function BrandLogo({
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
+      aria-hidden={decorative ? "true" : undefined}
+      role={decorative ? undefined : "img"}
+      aria-label={decorative ? undefined : "Daily Briefing 徽标"}
       {...props}
     >
       <rect width="100" height="100" rx="24" fill="#1c1917" />
